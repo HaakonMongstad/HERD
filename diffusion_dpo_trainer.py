@@ -6,6 +6,7 @@ from typing import Any, Callable, Optional, Tuple
 from warnings import warn
 
 import torch
+import torch.nn.functional as F
 from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.utils import ProjectConfiguration, set_seed
@@ -215,9 +216,11 @@ class DiffusionDPOTrainer(DDPOTrainer):
                     global_step += 1
                     info = defaultdict(list)
         return global_step
-    
-    def calculate_loss(self, latents, timesteps, next_latents, log_probs, advantages, embeds):
-        
+
+    def calculate_loss(
+        self, latents, timesteps, next_latents, log_probs, advantages, embeds
+    ):
+
         with self.autocast():
             if self.config.train_cfg:
                 noise_pred = self.sd_pipeline.unet(
@@ -235,20 +238,31 @@ class DiffusionDPOTrainer(DDPOTrainer):
                     timesteps,
                     embeds,
                 ).sample
-                
-                
+
+            scheduler_step_output = self.sd_pipeline.scheduler_step(
+                noise_pred,
+                timesteps,
+                latents,
+                eta=self.config.sample_eta,
+                prev_sample=next_latents,
+            )
+
             # Sample noise that will be added to latents
             noise = torch.randn_like(latents)
-            
+
             # Make timesteps and noise smae for pairs in DPO
             timesteps = timesteps.chunk(2)[0].repeat(2)
-            noise = noise.chunk(2)[0].repeat(2,1,1,1)
-            
+            noise = noise.chunk(2)[0].repeat(2, 1, 1, 1)
+
             target = noise
-            
-            model_losses = (noise_pred - target).pow(2).mean(dim=[1,2,3])
+
+            model_losses = (noise_pred - target).pow(2).mean(dim=[1, 2, 3])
             model_losses_w, model_losses_l = model_losses.chunk(2)
-        
-        
-        
-        
+
+            model_diff = model_losses_w - model_losses_l
+
+            beta_dpo = 5000
+            scale_term = -0.5 * beta_dpo
+            inside_term = scale_term * (model_diff - ref_diff)
+            implicit_acc = (inside_term > 0).sum().float() / inside_term.size(0)
+            loss = -1 * F.logsigmoid(inside_term).mean()
