@@ -23,12 +23,17 @@ class ImageRewardModel(nn.Module):
         self.model.to(self.device)
 
     def forward(self, images, prompts, metadata):
-        score = torch.tensor(
-            self.model.score(
-                prompt=prompts[0], image=torchvision.transforms.ToPILImage()(images[0])
+        scores = []
+        for i in range(len(images)):
+            score = torch.tensor(
+                self.model.score(
+                    prompt=prompts[i],
+                    image=torchvision.transforms.ToPILImage()(images[i]),
+                )
             )
-        )
-        return torch.tensor([score]).to(self.device), {}
+            scores.append(score)
+
+        return torch.tensor(scores).to(self.device), {}
 
 
 @dataclass
@@ -150,7 +155,7 @@ animals = [
     # "gorilla",
     # "hedgehog",
     # "kangaroo",
-    "Spaceship and waves."
+    "A bear washing dishes."
 ]
 
 
@@ -189,6 +194,9 @@ if __name__ == "__main__":
         use_lora=args.use_lora,
     )
     ddpo_config.log_with = "wandb"
+    ddpo_config.sample_batch_size = 6
+    ddpo_config.train_batch_size = 3
+    ddpo_config.sample_num_batches_per_epoch = 4
     trainer = DDPOTrainer(
         ddpo_config,
         # aesthetic_scorer(
