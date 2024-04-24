@@ -166,3 +166,89 @@ class DiffusionDPOTrainer(DDPOTrainer):
             self.accelerator.save_state()
 
         return global_step
+
+    def _train_batched_samples(self, inner_epoch, epoch, global_step, batched_samples):
+        info = defaultdict(list)
+        for _i, sample in enumerate(batched_samples):
+            if self.config.train_cfg:
+                # concat negative prompts to sample prompts to avoid two forward passes
+                embeds = torch.cat(
+                    [sample["negative_prompt_embeds"], sample["prompt_embeds"]]
+                )
+            else:
+                embeds = sample["prompt_embeds"]
+
+            for j in range(self.num_train_timesteps):
+                with self.accelerator.accumulate(self.sd_pipeline.unet):
+                    loss, approx_kl, clipfrac = self.calculate_loss(
+                        sample["latents"][:, j],
+                        sample["timesteps"][:, j],
+                        sample["next_latents"][:, j],
+                        sample["log_probs"][:, j],
+                        sample["advantages"],
+                        embeds,
+                    )
+                    info["approx_kl"].append(approx_kl)
+                    info["clipfrac"].append(clipfrac)
+                    info["loss"].append(loss)
+
+                    self.accelerator.backward(loss)
+                    if self.accelerator.sync_gradients:
+                        self.accelerator.clip_grad_norm_(
+                            (
+                                self.trainable_layers.parameters()
+                                if not isinstance(self.trainable_layers, list)
+                                else self.trainable_layers
+                            ),
+                            self.config.train_max_grad_norm,
+                        )
+                    self.optimizer.step()
+                    self.optimizer.zero_grad()
+
+                # Checks if the accelerator has performed an optimization step behind the scenes
+                if self.accelerator.sync_gradients:
+                    # log training-related stuff
+                    info = {k: torch.mean(torch.stack(v)) for k, v in info.items()}
+                    info = self.accelerator.reduce(info, reduction="mean")
+                    info.update({"epoch": epoch, "inner_epoch": inner_epoch})
+                    self.accelerator.log(info, step=global_step)
+                    global_step += 1
+                    info = defaultdict(list)
+        return global_step
+    
+    def calculate_loss(self, latents, timesteps, next_latents, log_probs, advantages, embeds):
+        
+        with self.autocast():
+            if self.config.train_cfg:
+                noise_pred = self.sd_pipeline.unet(
+                    torch.cat([latents] * 2),
+                    torch.cat([timesteps] * 2),
+                    embeds,
+                ).sample
+                noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                noise_pred = noise_pred_uncond + self.config.sample_guidance_scale * (
+                    noise_pred_text - noise_pred_uncond
+                )
+            else:
+                noise_pred = self.sd_pipeline.unet(
+                    latents,
+                    timesteps,
+                    embeds,
+                ).sample
+                
+                
+            # Sample noise that will be added to latents
+            noise = torch.randn_like(latents)
+            
+            # Make timesteps and noise smae for pairs in DPO
+            timesteps = timesteps.chunk(2)[0].repeat(2)
+            noise = noise.chunk(2)[0].repeat(2,1,1,1)
+            
+            target = noise
+            
+            model_losses = (noise_pred - target).pow(2).mean(dim=[1,2,3])
+            model_losses_w, model_losses_l = model_losses.chunk(2)
+        
+        
+        
+        
