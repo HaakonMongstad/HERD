@@ -13,6 +13,7 @@ from trl import DDPOConfig, DDPOTrainer, DefaultDDPOStableDiffusionPipeline
 from trl.import_utils import is_npu_available, is_xpu_available
 
 import ImageReward
+from diffusion_dpo_trainer import DiffusionDPOTrainer
 
 
 class ImageRewardModel(nn.Module):
@@ -189,12 +190,12 @@ if __name__ == "__main__":
         use_lora=args.use_lora,
     )
     ddpo_config.log_with = "wandb"
-    trainer = DDPOTrainer(
+    trainer = DiffusionDPOTrainer(
         ddpo_config,
-        # aesthetic_scorer(
-        #     args.hf_hub_aesthetic_model_id, args.hf_hub_aesthetic_model_filename
-        # ),
-        ImageRewardModel("ImageReward-v1.0"),
+        aesthetic_scorer(
+            args.hf_hub_aesthetic_model_id, args.hf_hub_aesthetic_model_filename
+        ),
+        # ImageRewardModel("ImageReward-v1.0"),
         prompt_fn,
         pipeline,
         image_samples_hook=image_outputs_logger,

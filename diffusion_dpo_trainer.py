@@ -41,22 +41,22 @@ class DiffusionDPOTrainer(DDPOTrainer):
 
     _tag_names = ["trl", "diffusion_dpo"]
 
-    def __init__(
-        self,
-        config: DDPOConfig,
-        reward_function: Callable[[torch.Tensor, Tuple[str], Tuple[Any]], torch.Tensor],
-        prompt_function: Callable[[], Tuple[str, Any]],
-        sd_pipeline: DDPOStableDiffusionPipeline,
-        image_samples_hook: Optional[Callable[[Any, Any, Any], Any]] = None,
-    ):
-        super().__init__(
-            self,
-            config,
-            reward_function,
-            prompt_function,
-            sd_pipeline,
-            image_samples_hook,
-        )
+    # def __init__(
+    #     self,
+    #     config: DDPOConfig,
+    #     reward_function: Callable[[torch.Tensor, Tuple[str], Tuple[Any]], torch.Tensor],
+    #     prompt_function: Callable[[], Tuple[str, Any]],
+    #     sd_pipeline: DDPOStableDiffusionPipeline,
+    #     image_samples_hook: Optional[Callable[[Any, Any, Any], Any]] = None,
+    # ):
+    #     super().__init__(
+    #         self,
+    #         config,
+    #         reward_function,
+    #         prompt_function,
+    #         sd_pipeline,
+    #         image_samples_hook,
+    #     )
 
     def step(self, epoch: int, global_step: int):
         samples, prompt_image_data = self._generate_samples(
