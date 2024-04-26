@@ -156,7 +156,9 @@ animals = [
     # "gorilla",
     # "hedgehog",
     # "kangaroo",
-    "A bear washing dishes."
+    # "A bear washing dishes.",
+    "A cat under the snow with blue eyes, covered by snow, cinematic style, medium shot, professional photo, animal.",
+    # "Batman, cute modern disney style, Pixar 3d portrait, ultra detailed, gorgeous, 3d zbrush, trending on dribbble, 8k render",
 ]
 
 
@@ -195,15 +197,16 @@ if __name__ == "__main__":
         use_lora=args.use_lora,
     )
     ddpo_config.log_with = "wandb"
-    ddpo_config.sample_batch_size = 6
+    ddpo_config.sample_batch_size = 9
     ddpo_config.train_batch_size = 3
     ddpo_config.sample_num_batches_per_epoch = 4
+    ddpo_config.num_epochs = 50
     trainer = DDPOTrainer(
         ddpo_config,
-        # aesthetic_scorer(
-        #     args.hf_hub_aesthetic_model_id, args.hf_hub_aesthetic_model_filename
-        # ),
-        ImageRewardModel("ImageReward-v1.0"),
+        aesthetic_scorer(
+            args.hf_hub_aesthetic_model_id, args.hf_hub_aesthetic_model_filename
+        ),
+        # ImageRewardModel("ImageReward-v1.0"),
         prompt_fn,
         pipeline,
         image_samples_hook=image_outputs_logger,
