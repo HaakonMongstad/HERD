@@ -249,6 +249,10 @@ class DiffusionDPOTrainer(DDPOTrainer):
 
             log_prob = scheduler_step_output.log_probs
 
+            print("START -------------------------------")
+            print(f"Log_prob shape: {log_prob.shape}")
+            print(f"Log_probs: {log_probs}")
+
             advantages = torch.clamp(
                 advantages,
                 -self.config.train_adv_clip_max,
@@ -268,6 +272,8 @@ class DiffusionDPOTrainer(DDPOTrainer):
             # Sample noise that will be added to latents
             noise = torch.randn_like(latents)
 
+            print(f"Noise: {noise}")
+
             # Make timesteps and noise smae for pairs in DPO
             timesteps = timesteps.chunk(2)[0].repeat(2)
             noise = noise.chunk(2)[0].repeat(2, 1, 1, 1)
@@ -279,10 +285,15 @@ class DiffusionDPOTrainer(DDPOTrainer):
 
             model_diff = model_losses_w - model_losses_l
 
+            print(f"Model losses: {model_losses}")
+            print(f"Model diff: {model_diff}")
+
             beta_dpo = 5000
             scale_term = -0.5 * beta_dpo
             inside_term = scale_term * (model_diff)
             implicit_acc = (inside_term > 0).sum().float() / inside_term.size(0)
             loss = -1 * F.logsigmoid(inside_term).mean()
+
+            print(f"Loss: {loss}")
 
             return loss, approx_kl, clipfrac

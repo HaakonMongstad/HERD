@@ -198,10 +198,11 @@ if __name__ == "__main__":
         use_lora=args.use_lora,
     )
     ddpo_config.log_with = "wandb"
-    ddpo_config.sample_batch_size = 9
-    ddpo_config.train_batch_size = 3
-    ddpo_config.sample_num_batches_per_epoch = 4
+    ddpo_config.sample_batch_size = 4
+    ddpo_config.train_batch_size = 4
+    ddpo_config.sample_num_batches_per_epoch = 8
     ddpo_config.num_epochs = 50
+    ddpo_config.async_reward_computation = False
     trainer = DDPOTrainer(
         ddpo_config,
         aesthetic_scorer(
