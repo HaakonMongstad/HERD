@@ -197,13 +197,18 @@ if __name__ == "__main__":
         pretrained_model_revision=args.pretrained_revision,
         use_lora=args.use_lora,
     )
+    ref_pipeline = DefaultDDPOStableDiffusionPipeline(
+        args.pretrained_model,
+        pretrained_model_revision=args.pretrained_revision,
+        use_lora=args.use_lora,
+    )
     ddpo_config.log_with = "wandb"
     ddpo_config.sample_batch_size = 4
-    ddpo_config.train_batch_size = 4
-    ddpo_config.sample_num_batches_per_epoch = 8
+    ddpo_config.train_batch_size = 2
+    ddpo_config.sample_num_batches_per_epoch = 2
     ddpo_config.num_epochs = 50
     ddpo_config.async_reward_computation = False
-    trainer = DDPOTrainer(
+    trainer = DiffusionDPOTrainer(
         ddpo_config,
         aesthetic_scorer(
             args.hf_hub_aesthetic_model_id, args.hf_hub_aesthetic_model_filename
@@ -211,6 +216,7 @@ if __name__ == "__main__":
         # ImageRewardModel("ImageReward-v1.0"),
         prompt_fn,
         pipeline,
+        ref_pipeline=ref_pipeline,
         image_samples_hook=image_outputs_logger,
     )
 
