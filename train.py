@@ -23,13 +23,19 @@ class ImageRewardModel(nn.Module):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model.to(self.device)
 
+    @torch.no_grad()
     def forward(self, images, prompts, metadata):
-        score = torch.tensor(
-            self.model.score(
-                prompt=prompts[0], image=torchvision.transforms.ToPILImage()(images[0])
+        scores = []
+        for i in range(len(images)):
+            score = torch.tensor(
+                self.model.score(
+                    prompt=prompts[i],
+                    image=torchvision.transforms.ToPILImage()(images[i]),
+                )
             )
-        )
-        return torch.tensor([score]).to(self.device), {}
+            scores.append(score)
+
+        return torch.tensor(scores).to(self.device), {}
 
 
 @dataclass
@@ -151,7 +157,9 @@ animals = [
     # "gorilla",
     # "hedgehog",
     # "kangaroo",
-    "Spaceship and waves."
+    # "A bear washing dishes.",
+    "A cat under the snow with blue eyes, covered by snow, cinematic style, medium shot, professional photo, animal.",
+    # "Batman, cute modern disney style, Pixar 3d portrait, ultra detailed, gorgeous, 3d zbrush, trending on dribbble, 8k render",
 ]
 
 
@@ -190,7 +198,11 @@ if __name__ == "__main__":
         use_lora=args.use_lora,
     )
     ddpo_config.log_with = "wandb"
-    trainer = DiffusionDPOTrainer(
+    ddpo_config.sample_batch_size = 9
+    ddpo_config.train_batch_size = 3
+    ddpo_config.sample_num_batches_per_epoch = 4
+    ddpo_config.num_epochs = 50
+    trainer = DDPOTrainer(
         ddpo_config,
         aesthetic_scorer(
             args.hf_hub_aesthetic_model_id, args.hf_hub_aesthetic_model_filename
