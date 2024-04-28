@@ -71,6 +71,7 @@ class HERTrainer(DDPOTrainer):
             batch_size=self.config.sample_batch_size,
         )
 
+        # Save the original prompt image data
         original_prompt_image_data = copy.deepcopy(prompt_image_data)
 
         samples = {k: torch.cat([s[k] for s in samples]) for k in samples[0].keys()}
@@ -287,15 +288,6 @@ class HERTrainer(DDPOTrainer):
             rewards = torch.cat(rewards)
             rewards = self.accelerator.gather(rewards).cpu().numpy()
 
-            # Calculate the advantages (Probably doesn't work with per_prompt_stat_tracking)
-            # advantages = (rewards - rewards.mean()) / (rewards.std() + 1e-8)
-
-            # advantages = (
-            #     torch.as_tensor(advantages)
-            #     .reshape(self.accelerator.num_processes, -1)[self.accelerator.process_index]
-            #     .to(self.accelerator.device)
-            # )
-
             hindsight_rewards.append(rewards[perm[index]])
 
             # Reshape prompt embeddings
@@ -322,7 +314,6 @@ class HERTrainer(DDPOTrainer):
         # Log stats
         self.accelerator.log(
             {
-                "hindsight_rewards": hindsight_rewards,
                 "hindsight_reward_mean": hindsight_rewards.mean(),
                 "hindsight_reward_std": hindsight_rewards.std(),
             },
