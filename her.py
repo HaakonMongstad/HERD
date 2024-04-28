@@ -102,6 +102,8 @@ class HERTrainer(DDPOTrainer):
             },
             step=global_step,
         )
+
+        # Use memory when not in the first step
         if global_step == 0:
             if self.config.per_prompt_stat_tracking:
                 # gather the prompts across processes
@@ -208,8 +210,16 @@ class HERTrainer(DDPOTrainer):
                     samples_batched[:total_batch_size],
                     original_prompt_image_data,
                     perm,
-                    global_step,
                 )
+            )
+
+            # Log stats
+            self.accelerator.log(
+                {
+                    "hindsight_reward_mean": hindsight_rewards.mean(),
+                    "hindsight_reward_std": hindsight_rewards.std(),
+                },
+                step=global_step,
             )
 
             # Clear the memory (might want to delete this if you want to keep the memory for all future steps)
@@ -234,38 +244,44 @@ class HERTrainer(DDPOTrainer):
 
         return global_step
 
-    def _generate_new_prompt_data(self, prompt_image_data):
+    def _generate_new_prompt_data(self, prompt_image_data, index):
         self.sd_pipeline.unet.eval()
 
-        prompt_embeds = []
-        for i, pairs in enumerate(prompt_image_data):
-            prompts = []
-            for prompt in pairs[1]:
-                # Shuffle the prompt
-                shuffled_prompt = self._change_prompt(prompt)
+        # Shuffle the prompt
+        row = index // self.config.sample_batch_size
+        col = index % self.config.sample_batch_size
+        shuffled_prompt = self._change_prompt(prompt_image_data[row][1][col])
 
-                # Save the prompt
-                prompts.append(shuffled_prompt)
+        # Save the prompt
+        prompt_image_pair = [
+            prompt_image_data[row][0][col],
+            tuple([shuffled_prompt]),
+            prompt_image_data[row][2][col],
+        ]
 
-            # Save the prompt
-            prompt_image_data[i][1] = tuple(prompts)
+        # Tokenize the prompt
+        prompt_id = self.sd_pipeline.tokenizer(
+            tuple([shuffled_prompt]),
+            return_tensors="pt",
+            padding="max_length",
+            truncation=True,
+            max_length=self.sd_pipeline.tokenizer.model_max_length,
+        ).input_ids.to(self.accelerator.device)
 
-            # Tokenize the prompt
-            prompt_ids = self.sd_pipeline.tokenizer(
-                prompt_image_data[i][1],
-                return_tensors="pt",
-                padding="max_length",
-                truncation=True,
-                max_length=self.sd_pipeline.tokenizer.model_max_length,
-            ).input_ids.to(self.accelerator.device)
+        # Create prompt embeddings
+        prompt_embeds = self.sd_pipeline.text_encoder(prompt_id)[0]
+        return prompt_embeds, prompt_image_pair
 
-            # Create prompt embeds
-            prompt_embeds.extend(self.sd_pipeline.text_encoder(prompt_ids)[0])
+    def _compute_new_reward(self, prompt_image_pair):
+        # Compute rewards
+        reward, _ = self.reward_fn(
+            prompt_image_pair[0], prompt_image_pair[1], prompt_image_pair[2]
+        )
 
-        return prompt_embeds, prompt_image_data
+        return torch.as_tensor(reward, device=self.accelerator.device)
 
     def _sample_hindsight_trajectories(
-        self, prev_trajectories, original_prompt_image_data, perm, global_step
+        self, prev_trajectories, original_prompt_image_data, perm
     ):
         hindsight_trajectories = []
         hindsight_rewards = []
@@ -275,31 +291,28 @@ class HERTrainer(DDPOTrainer):
             index, trajectory = random.choice(list(enumerate(prev_trajectories)))
 
             # Randomly shuffle the prompt
-            prompt_embeds, prompt_image_data = self._generate_new_prompt_data(
-                original_prompt_image_data
+            prompt_embed, prompt_image_pair = self._generate_new_prompt_data(
+                original_prompt_image_data, perm[index]
             )
 
             # Create new reward for the trajectory
-            rewards, _ = self.compute_rewards(
-                prompt_image_data, is_async=self.config.async_reward_computation
-            )
+            reward = self._compute_new_reward(prompt_image_pair)
 
             # Concatenate rewards
-            rewards = torch.cat(rewards)
-            rewards = self.accelerator.gather(rewards).cpu().numpy()
+            reward = self.accelerator.gather(reward).cpu().numpy()
 
-            hindsight_rewards.append(rewards[perm[index]])
+            hindsight_rewards.extend(reward)
 
             # Reshape prompt embeddings
-            reshaped_prompt_embeds = torch.reshape(
-                prompt_embeds[perm[index]],
-                (1, -1, prompt_embeds[perm[index]].shape[-1]),
-            )
+            # reshaped_prompt_embeds = torch.reshape(
+            #     prompt_embed,
+            #     (1, -1, prompt_embed.shape[-1]),
+            # )
 
             # Add the new trajectory to memory
             hindsight_trajectories.append(
                 {
-                    "prompt_embeds": reshaped_prompt_embeds,
+                    "prompt_embeds": prompt_embed,
                     "timesteps": trajectory["timesteps"],
                     "latents": trajectory["latents"],
                     "next_latents": trajectory["next_latents"],
@@ -311,14 +324,6 @@ class HERTrainer(DDPOTrainer):
         # Convert to numpy array
         hindsight_rewards = np.array(hindsight_rewards)
 
-        # Log stats
-        self.accelerator.log(
-            {
-                "hindsight_reward_mean": hindsight_rewards.mean(),
-                "hindsight_reward_std": hindsight_rewards.std(),
-            },
-            step=global_step,
-        )
         return hindsight_trajectories, hindsight_rewards
 
     def _change_prompt(self, prompt):
