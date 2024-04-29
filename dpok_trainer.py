@@ -69,7 +69,10 @@ class ValueModel(nn.Module):
         torch.nn.init.xavier_normal_(self.lin4.weight)
 
     def forward(self, img, txt_emb, t):
+        txt_emb = txt_emb[:, 0, :]
+        img = torch.squeeze(img)
         x = img.view(img.shape[0], -1)
+        x = x.reshape(1, -1)
         x = torch.cat([x, txt_emb], dim=1)
         # x = torch.cat([x, txt_emb], dim=1)
         x = F.relu(self.lin1(x, t))
@@ -108,7 +111,7 @@ class DPOKTrainer(DDPOTrainer):
 
         # prob get these from config
         self.v_steps = 5
-        self.v_batch_size = 2
+        self.v_batch_size = 1
 
     def compute_rewards(self, prompt_image_pairs, is_async=False):
         if not is_async:
@@ -137,21 +140,25 @@ class DPOKTrainer(DDPOTrainer):
 
         return zip(*rewards)
 
-    def train_value_function(self, samples):
+    def train_value_function(self, samples, rewards):
         # get random indices from batch samples
-        indices = np.random_choice(
+        indices = np.random.choice(
             samples["latents"].shape[0], self.v_batch_size, replace=False
         )
+        time_indices = np.random.choice(
+            self.num_train_timesteps, self.v_batch_size, replace=False
+        )
 
-        batch_state = samples["latents"][indices]
-        batch_timestep = samples["timesteps"][indices]
-        batch_reward = samples["rewards"][indices]
+        batch_state = torch.squeeze(samples["latents"][indices])[time_indices]
+        batch_timestep = torch.squeeze(samples["timesteps"][indices])[time_indices]
+        batch_reward = rewards[indices]
         batch_prompt_embeds = samples["prompt_embeds"][indices]
 
         pred_value = self.value_function(
             batch_state.cuda().detach(),
             batch_prompt_embeds.cuda().detach(),
-            batch_timestep.cuda().detach(),
+            self.v_batch_size,
+            # batch_timestep.cuda().detach(),
         )
 
         batch_reward = batch_reward.cuda().float()
@@ -280,9 +287,13 @@ class DPOKTrainer(DDPOTrainer):
             for v_step in range(self.v_steps):
                 if v_step < self.v_steps - 1:
                     with self.accelerator.no_sync(self.value_function):
-                        val_loss += self.train_value_function(samples)
+                        val_loss += self.train_value_function(
+                            samples, torch.Tensor(rewards)
+                        )
                 else:
-                    val_loss += self.train_value_function(samples)
+                    val_loss += self.train_value_function(
+                        samples, torch.Tensor(rewards)
+                    )
             self.value_optimizer.step()
             self.value_optimizer.zero_grad()
 
