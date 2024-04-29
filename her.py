@@ -328,7 +328,9 @@ class HERTrainer(DDPOTrainer):
 
         prev_trajectories = self._unpack_prev_trajectory(prev_trajectories)
 
-        for _ in range(len(prev_trajectories)):
+        hindsight_batch_size = 1
+
+        for _ in range(hindsight_batch_size * self.config.train_batch_size):
             # Sample a trajectory from the memory
             index, trajectory = random.choice(list(enumerate(prev_trajectories)))
 
@@ -366,11 +368,11 @@ class HERTrainer(DDPOTrainer):
 
     def _change_prompt(self, prompt):
         # Modify prompt
-        words = prompt.split()
+        sentences = prompt.split(".")
+        index = random.randint(0, len(sentences) - 1)
 
         # Randomly shuffle the words
-        random.shuffle(words)
-        return " ".join(words)
+        return sentences[index]
 
     def _train_batched_samples(self, inner_epoch, epoch, global_step, batched_samples):
         """
