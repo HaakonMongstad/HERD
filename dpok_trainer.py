@@ -315,96 +315,6 @@ class DPOKTrainer(DDPOTrainer):
 
         return global_step
 
-    def calculate_loss(
-        self, latents, timesteps, next_latents, log_probs, advantages, embeds
-    ):
-        """
-        Calculate the loss for a batch of an unpacked sample
-
-        Args:
-            latents (torch.Tensor):
-                The latents sampled from the diffusion model, shape: [batch_size, num_channels_latents, height, width]
-            timesteps (torch.Tensor):
-                The timesteps sampled from the diffusion model, shape: [batch_size]
-            next_latents (torch.Tensor):
-                The next latents sampled from the diffusion model, shape: [batch_size, num_channels_latents, height, width]
-            log_probs (torch.Tensor):
-                The log probabilities of the latents, shape: [batch_size]
-            advantages (torch.Tensor):
-                The advantages of the latents, shape: [batch_size]
-            embeds (torch.Tensor):
-                The embeddings of the prompts, shape: [2*batch_size or batch_size, ...]
-                Note: the "or" is because if train_cfg is True, the expectation is that negative prompts are concatenated to the embeds
-
-        Returns:
-            loss (torch.Tensor), approx_kl (torch.Tensor), clipfrac (torch.Tensor)
-            (all of these are of shape (1,))
-        """
-        with self.autocast():
-            if self.config.train_cfg:
-                noise_pred = self.sd_pipeline.unet(
-                    torch.cat([latents] * 2),
-                    torch.cat([timesteps] * 2),
-                    embeds,
-                ).sample
-                noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-                noise_pred = noise_pred_uncond + self.config.sample_guidance_scale * (
-                    noise_pred_text - noise_pred_uncond
-                )
-            else:
-                noise_pred = self.sd_pipeline.unet(
-                    latents,
-                    timesteps,
-                    embeds,
-                ).sample
-            # compute the log prob of next_latents given latents under the current model
-
-            scheduler_step_output = self.sd_pipeline.scheduler_step(
-                noise_pred,
-                timesteps,
-                latents,
-                eta=self.config.sample_eta,
-                prev_sample=next_latents,
-            )
-
-            log_prob = scheduler_step_output.log_probs
-
-        advantages = torch.clamp(
-            advantages,
-            -self.config.train_adv_clip_max,
-            self.config.train_adv_clip_max,
-        )
-
-        ratio = torch.exp(log_prob - log_probs)
-
-        loss = self.loss(advantages, self.config.train_clip_range, ratio)
-
-        approx_kl = 0.5 * torch.mean((log_prob - log_probs) ** 2)
-
-        clipfrac = torch.mean(
-            (torch.abs(ratio - 1.0) > self.config.train_clip_range).float()
-        )
-
-        return loss, approx_kl, clipfrac
-
-    def loss(
-        self,
-        advantages: torch.Tensor,
-        clip_range: float,
-        ratio: torch.Tensor,
-    ):
-        unclipped_loss = -advantages * ratio
-        clipped_loss = -advantages * torch.clamp(
-            ratio,
-            1.0 - clip_range,
-            1.0 + clip_range,
-        )
-        return torch.mean(torch.maximum(unclipped_loss, clipped_loss))
-        weights.pop()  # ensures that accelerate doesn't try to handle saving of the model
-
-        self.sd_pipeline.load_checkpoint(models, input_dir)
-        models.pop()  # ensures that accelerate doesn't try to handle loading of the model
-
     def _generate_samples(self, iterations, batch_size):
         """
         Generate samples from the model
@@ -475,6 +385,66 @@ class DPOKTrainer(DDPOTrainer):
 
         return samples, prompt_image_pairs
 
+    def train_policy_function(self, sample, info):
+        """
+        Train the policy function
+
+        Args:
+            sample (Dict[str, torch.Tensor]): The sample to train on
+            info (Dict[str, List]): The dictionary to store the training information
+
+        Side Effects:
+            - The policy function is trained
+            - The training information is stored in the info dictionary
+        """
+
+        if self.config.train_cfg:
+            # concat negative prompts to sample prompts to avoid two forward passes
+            embeds = torch.cat(
+                [sample["negative_prompt_embeds"], sample["prompt_embeds"]]
+            )
+        else:
+            embeds = sample["prompt_embeds"]
+        with self.autocast():
+            model_pred = self.sd_pipeline.unet(
+                sample["latents"],
+                sample["timesteps"],
+                embeds,
+            ).sample
+
+            scheduler_step_output = self.sd_pipeline.scheduler_step(
+                model_pred,
+                sample["timesteps"],
+                sample["latents"],
+                eta=self.config.sample_eta,
+                prev_sample=sample["next_latents"],
+            )
+
+            log_prob = scheduler_step_output.log_probs
+
+        with torch.no_grad():
+            advantages = sample["rewards"] - self.value_function(
+                sample["latents"], embeds, sample["timesteps"]
+            ).reshape([self.train_batch_size, 1])
+
+        ratio = torch.exp(log_prob - sample["log_probs"])
+        ratio_clip = 1e-4  # get this froms self.config.train_clip_range later
+        ratio = torch.clamp(ratio, 1.0 - ratio_clip, 1.0 + ratio_clip)
+        reward_weight = 100  # will pass this in too
+        aprrox_kl = 0.5 * torch.mean((log_prob - sample["log_probs"]) ** 2)
+
+        loss = (
+            -reward_weight
+            * advantages.detach().float()
+            * ratio.float().reshape([self.train_batch_size, 1])
+        ).mean()
+        loss = loss / self.num_train_timesteps
+
+        info["aprrox_kl"].append(aprrox_kl)
+        info["loss"].append(loss)
+
+        self.accelerator.backward(loss)
+
     def _train_batched_samples(self, inner_epoch, epoch, global_step, batched_samples):
         """
         Train on a batch of samples. Main training segment
@@ -494,40 +464,13 @@ class DPOKTrainer(DDPOTrainer):
         """
         info = defaultdict(list)
         for _i, sample in enumerate(batched_samples):
-            if self.config.train_cfg:
-                # concat negative prompts to sample prompts to avoid two forward passes
-                embeds = torch.cat(
-                    [sample["negative_prompt_embeds"], sample["prompt_embeds"]]
-                )
-            else:
-                embeds = sample["prompt_embeds"]
-
+            self.optimizer.zero_grad()
             for j in range(self.num_train_timesteps):
-                with self.accelerator.accumulate(self.sd_pipeline.unet):
-                    loss, approx_kl, clipfrac = self.calculate_loss(
-                        sample["latents"][:, j],
-                        sample["timesteps"][:, j],
-                        sample["next_latents"][:, j],
-                        sample["log_probs"][:, j],
-                        sample["advantages"],
-                        embeds,
-                    )
-                    info["approx_kl"].append(approx_kl)
-                    info["clipfrac"].append(clipfrac)
-                    info["loss"].append(loss)
-
-                    self.accelerator.backward(loss)
-                    if self.accelerator.sync_gradients:
-                        self.accelerator.clip_grad_norm_(
-                            (
-                                self.trainable_layers.parameters()
-                                if not isinstance(self.trainable_layers, list)
-                                else self.trainable_layers
-                            ),
-                            self.config.train_max_grad_norm,
-                        )
-                    self.optimizer.step()
-                    self.optimizer.zero_grad()
+                if j < self.num_train_timesteps - 1:
+                    with self.accelerator.no_sync(self.sd_pipeline.unet):
+                        self.train_policy_function(sample, info)
+                else:
+                    self.train_policy_function(sample, info)
 
                 # Checks if the accelerator has performed an optimization step behind the scenes
                 if self.accelerator.sync_gradients:
