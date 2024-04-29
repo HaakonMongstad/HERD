@@ -137,14 +137,23 @@ class HERTrainer(DDPOTrainer):
             advantages = advantages[: len(rewards)]
 
             # ungather advantages
-            for i, adv in enumerate(memory_advantages):
+            for i in range(len(memory_advantages) // self.config.train_batch_size):
                 self.memory["trajectories"][i]["advantages"] = (
-                    torch.as_tensor(adv)
+                    torch.as_tensor(
+                        [
+                            memory_advantages[
+                                i
+                                * self.config.train_batch_size : (i + 1)
+                                * self.config.train_batch_size
+                            ]
+                        ]
+                    )
                     .reshape(self.accelerator.num_processes, -1)[
                         self.accelerator.process_index
                     ]
                     .to(self.accelerator.device)
                 )
+
             del self.memory["rewards"]
 
         # ungather advantages;  keep the entries corresponding to the samples on this process
@@ -207,7 +216,7 @@ class HERTrainer(DDPOTrainer):
             # Add sampled trajectories to the memory
             hindsight_trajectories, hindsight_rewards = (
                 self._sample_hindsight_trajectories(
-                    samples_batched[:total_batch_size],
+                    samples_batched[: total_batch_size // self.config.train_batch_size],
                     original_prompt_image_data,
                     perm,
                 )
@@ -248,13 +257,13 @@ class HERTrainer(DDPOTrainer):
         self.sd_pipeline.unet.eval()
 
         # Shuffle the prompt
-        row = index // self.config.sample_batch_size
-        col = index % self.config.sample_batch_size
+        row = (index // self.config.sample_batch_size).cpu().numpy()
+        col = (index % self.config.sample_batch_size).cpu().numpy()
         shuffled_prompt = self._change_prompt(prompt_image_data[row][1][col])
 
         # Save the prompt
         prompt_image_pair = [
-            prompt_image_data[row][0][col],
+            prompt_image_data[row][0][col].unsqueeze(0),
             tuple([shuffled_prompt]),
             prompt_image_data[row][2][col],
         ]
@@ -280,13 +289,46 @@ class HERTrainer(DDPOTrainer):
 
         return torch.as_tensor(reward, device=self.accelerator.device)
 
+    def _unpack_prev_trajectory(self, trajectories):
+        reshaped_trajectories = [
+            {} for _ in range(len(trajectories) * self.config.train_batch_size)
+        ]
+
+        for i, trajectory_bunch in enumerate(trajectories):
+            for key, tensor in trajectory_bunch.items():
+                for j in range(self.config.train_batch_size):
+                    reshaped_trajectories[i * self.config.train_batch_size + j][key] = (
+                        tensor[j].unsqueeze(0)
+                    )
+
+        return reshaped_trajectories
+
+    def _repack_new_trajectory(self, trajectories):
+        reshaped_trajectories = []
+
+        for i, trajectory in enumerate(trajectories[:: self.config.train_batch_size]):
+            trajectory_bunch = {}
+            for key, _ in trajectory.items():
+                trajectory_bunch[key] = torch.cat(
+                    [
+                        trajectories[i * self.config.train_batch_size + j][key]
+                        for j in range(self.config.train_batch_size)
+                    ]
+                )
+
+            reshaped_trajectories.append(trajectory_bunch)
+
+        return reshaped_trajectories
+
     def _sample_hindsight_trajectories(
         self, prev_trajectories, original_prompt_image_data, perm
     ):
         hindsight_trajectories = []
         hindsight_rewards = []
 
-        for i in range(len(prev_trajectories)):
+        prev_trajectories = self._unpack_prev_trajectory(prev_trajectories)
+
+        for _ in range(len(prev_trajectories)):
             # Sample a trajectory from the memory
             index, trajectory = random.choice(list(enumerate(prev_trajectories)))
 
@@ -300,14 +342,7 @@ class HERTrainer(DDPOTrainer):
 
             # Concatenate rewards
             reward = self.accelerator.gather(reward).cpu().numpy()
-
             hindsight_rewards.extend(reward)
-
-            # Reshape prompt embeddings
-            # reshaped_prompt_embeds = torch.reshape(
-            #     prompt_embed,
-            #     (1, -1, prompt_embed.shape[-1]),
-            # )
 
             # Add the new trajectory to memory
             hindsight_trajectories.append(
@@ -323,6 +358,9 @@ class HERTrainer(DDPOTrainer):
 
         # Convert to numpy array
         hindsight_rewards = np.array(hindsight_rewards)
+
+        # Repack the trajectories
+        hindsight_trajectories = self._repack_new_trajectory(hindsight_trajectories)
 
         return hindsight_trajectories, hindsight_rewards
 
