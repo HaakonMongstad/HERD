@@ -13,6 +13,7 @@ from trl import DDPOConfig, DDPOTrainer, DefaultDDPOStableDiffusionPipeline
 from trl.import_utils import is_npu_available, is_xpu_available
 
 import ImageReward
+from dpok_trainer import DPOKTrainer
 
 
 class ImageRewardModel(nn.Module):
@@ -197,16 +198,16 @@ if __name__ == "__main__":
         use_lora=args.use_lora,
     )
     ddpo_config.log_with = "wandb"
-    ddpo_config.sample_batch_size = 9
+    ddpo_config.sample_batch_size = 6
     ddpo_config.train_batch_size = 3
-    ddpo_config.sample_num_batches_per_epoch = 4
+    ddpo_config.sample_num_batches_per_epoch = 2
     ddpo_config.num_epochs = 50
-    trainer = DDPOTrainer(
+    trainer = DPOKTrainer(
         ddpo_config,
-        aesthetic_scorer(
-            args.hf_hub_aesthetic_model_id, args.hf_hub_aesthetic_model_filename
-        ),
-        # ImageRewardModel("ImageReward-v1.0"),
+        # aesthetic_scorer(
+        #     args.hf_hub_aesthetic_model_id, args.hf_hub_aesthetic_model_filename
+        # ),
+        ImageRewardModel("ImageReward-v1.0"),
         prompt_fn,
         pipeline,
         image_samples_hook=image_outputs_logger,
