@@ -2,6 +2,7 @@ import importlib
 import os
 from dataclasses import dataclass, field
 
+import ImageReward
 import numpy as np
 import torch
 import torch.nn as nn
@@ -12,8 +13,7 @@ from transformers import CLIPModel, CLIPProcessor, HfArgumentParser
 from trl import DDPOConfig, DDPOTrainer, DefaultDDPOStableDiffusionPipeline
 from trl.import_utils import is_npu_available, is_xpu_available
 
-import ImageReward
-from her import HERTrainer
+from trainer.her import HERTrainer
 
 
 class ImageRewardModel(nn.Module):
