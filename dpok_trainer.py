@@ -280,11 +280,9 @@ class DPOKTrainer(DDPOTrainer):
             for v_step in range(self.v_steps):
                 if v_step < self.v_steps - 1:
                     with self.accelerator.no_sync(self.value_function):
-                        val_loss += self.train_value_function(
-                            samples, prompt_image_data
-                        )
+                        val_loss += self.train_value_function(samples)
                 else:
-                    val_loss += self.train_value_function(samples, prompt_image_data)
+                    val_loss += self.train_value_function(samples)
             self.value_optimizer.step()
             self.value_optimizer.zero_grad()
 
