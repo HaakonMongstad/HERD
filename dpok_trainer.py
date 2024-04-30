@@ -311,10 +311,23 @@ class DPOKTrainer(DDPOTrainer):
                     # --------------------------------------------
 
                     self.sd_pipeline.unet.train()
-                    global_step = self._train_batched_samples(
-                        inner_epoch, epoch, global_step, samples_batched
-                    )
-                    global_step += 1
+                    self.optimizer.zero_grad()
+                    for j in range(self.num_train_timesteps):
+                        if j < self.num_train_timesteps - 1:
+                            with self.accelerator.no_sync(self.sd_pipeline.unet):
+                                self.train_policy_function(sample, info)
+                        else:
+                            self.train_policy_function(sample, info)
+
+                        if self.accelerator.sync_gradients:
+                            # log training-related stuff
+                            info = {k: torch.mean(torch.stack(v)) for k, v in info.items()}
+                            info = self.accelerator.reduce(info, reduction="mean")
+                            info.update({"epoch": epoch, "inner_epoch": inner_epoch})
+                            self.accelerator.log(info, step=global_step)
+                            global_step += 1
+                            info = defaultdict(list)
+
             # ensure optimization step at the end of the inner epoch
             if not self.accelerator.sync_gradients:
                 raise ValueError(
