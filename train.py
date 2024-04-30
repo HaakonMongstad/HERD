@@ -2,7 +2,6 @@ import importlib
 import os
 from dataclasses import dataclass, field
 
-import ImageReward
 import numpy as np
 import torch
 import torch.nn as nn
@@ -13,6 +12,8 @@ from transformers import CLIPModel, CLIPProcessor, HfArgumentParser
 from trl import DDPOConfig, DDPOTrainer, DefaultDDPOStableDiffusionPipeline
 from trl.import_utils import is_npu_available, is_xpu_available
 
+import ImageReward
+from trainer.config.her_config import HERConfig
 from trainer.her import HERTrainer
 
 
@@ -163,7 +164,8 @@ animals = [
     # "muscular black male covered in chocolate with bunny ears. portrait",
     # "Scenic view of Yosemite National Park waterfall during sunset in the winter time",
     # "A cat under the snow with blue eyes, covered by snow. Cinematic style, medium shot. Professional photo, animal.",
-    "2 cats in a basket, one is looking at the camera. 1 dog barking in the background.",
+    # "2 cats in a basket, one is looking at the camera. 1 dog barking in the background.",
+    "A black cat and golden retriever dog. A hot ocean side beach. Dramatic atmosphere, centered, rule of thirds, professional photo.",
 ]
 
 
@@ -187,7 +189,7 @@ def image_outputs_logger(image_data, global_step, accelerate_logger):
 
 
 if __name__ == "__main__":
-    parser = HfArgumentParser((ScriptArguments, DDPOConfig))
+    parser = HfArgumentParser((ScriptArguments, HERConfig))
     args, ddpo_config = parser.parse_args_into_dataclasses()
     ddpo_config.project_kwargs = {
         "logging_dir": "./logs",
@@ -206,6 +208,7 @@ if __name__ == "__main__":
     ddpo_config.train_batch_size = 3
     ddpo_config.sample_num_batches_per_epoch = 2
     ddpo_config.num_epochs = 100
+    ddpo_config.hindsight_batch_size = 1
     trainer = HERTrainer(
         ddpo_config,
         # aesthetic_scorer(

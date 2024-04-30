@@ -18,7 +18,7 @@ from trl.models import DDPOStableDiffusionPipeline
 from trl.trainer import BaseTrainer, DDPOConfig, DDPOTrainer
 from trl.trainer.utils import PerPromptStatTracker
 
-from ..config.her_config import HERConfig
+from .config.her_config import HERConfig
 
 logger = get_logger(__name__)
 
@@ -330,7 +330,7 @@ class HERTrainer(DDPOTrainer):
 
         prev_trajectories = self._unpack_prev_trajectory(prev_trajectories)
 
-        for _ in range(self.hindsight_batch_size * self.config.train_batch_size):
+        for _ in range(self.config.hindsight_batch_size * self.config.train_batch_size):
             # Sample a trajectory from the memory
             index, trajectory = random.choice(list(enumerate(prev_trajectories)))
 

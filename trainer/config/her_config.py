@@ -6,9 +6,6 @@ from typing import Literal, Optional
 
 from trl.trainer import DDPOConfig
 
-from ..core import flatten_dict
-from ..import_utils import is_bitsandbytes_available, is_torchvision_available
-
 
 @dataclass
 class HERConfig(DDPOConfig):
