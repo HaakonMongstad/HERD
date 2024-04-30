@@ -137,15 +137,11 @@ class DPOKTrainer(DDPOTrainer):
 
         return zip(*rewards)
 
-    def train_value_function(self, samples):
+    def train_value_function(self, samples, batch_reward, time_index):
         # get random indices from batch samples
-        indices = np.random_choice(
-            samples["latents"].shape[0], self.v_batch_size, replace=False
-        )
 
-        batch_state = samples["latents"][indices]
-        batch_timestep = samples["timesteps"][indices]
-        batch_reward = samples["rewards"][indices]
+        batch_state = samples["latents"][time_index]
+        batch_timestep = samples["timesteps"][time_index]
         batch_prompt_embeds = samples["prompt_embeds"][indices]
 
         pred_value = self.value_function(
@@ -274,44 +270,52 @@ class DPOKTrainer(DDPOTrainer):
                 dict(zip(original_keys, row_values)) for row_values in transposed_values
             ]
 
-            # value function training steps
-            val_loss = 0
-            self.value_optimizer.zero_grad()
-            for v_step in range(self.v_steps):
-                if v_step < self.v_steps - 1:
-                    with self.accelerator.no_sync(self.value_function):
-                        val_loss += self.train_value_function(samples)
-                else:
-                    val_loss += self.train_value_function(samples)
-            self.value_optimizer.step()
-            self.value_optimizer.zero_grad()
+            for batch_num in range(len(samples_batched)):
+                sample = samples_batched[batch_num].squeeze()
+                reward = rewards[batch_num].squeeze()
 
-            self.accelerator.log(
-                {
-                    "value_loss": val_loss,
-                }
-            )
-            torch.cuda.empty_cache()
-            # --------------------------------------------
+                # value function training steps
+                val_loss = 0
+                self.value_optimizer.zero_grad()
+                v_time_indices = np.random.choice(samples["latents"].shape[0], self.v_steps, replace=False)
+                for v_step in range(self.v_steps):
+                    if v_step < self.v_steps - 1:
+                        with self.accelerator.no_sync(self.value_function):
+                            val_loss += self.train_value_function(sample, reward, v_time_indices[v_step])
+                    else:
+                        val_loss += self.train_value_function(sample, reward, v_time_indices[v_step])
+                self.value_optimizer.step()
+                self.value_optimizer.zero_grad()
 
-            self.sd_pipeline.unet.train()
-            global_step = self._train_batched_samples(
-                inner_epoch, epoch, global_step, samples_batched
-            )
-            # ensure optimization step at the end of the inner epoch
-            if not self.accelerator.sync_gradients:
-                raise ValueError(
-                    "Optimization step should have been performed by this point. Please check calculated gradient accumulation settings."
+                self.accelerator.log(
+                    {
+                        "value_loss": val_loss,
+                    }
                 )
+                torch.cuda.empty_cache()
+                # --------------------------------------------
 
-        if (
-            epoch != 0
-            and epoch % self.config.save_freq == 0
-            and self.accelerator.is_main_process
-        ):
-            self.accelerator.save_state()
+                self.sd_pipeline.unet.train()
+                global_step = self._train_batched_samples(
+                    inner_epoch, epoch, global_step, samples_batched
+                )
+                # ensure optimization step at the end of the inner epoch
+                if not self.accelerator.sync_gradients:
+                    raise ValueError(
+                        "Optimization step should have been performed by this point. Please check calculated gradient accumulation settings."
+                    )
+
+            if (
+                epoch != 0
+                and epoch % self.config.save_freq == 0
+                and self.accelerator.is_main_process
+            ):
+                self.accelerator.save_state()
 
         return global_step
+    
+def train_sample(self, sample):
+    
 
     def _generate_samples(self, iterations, batch_size):
         """
