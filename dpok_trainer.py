@@ -69,7 +69,10 @@ class ValueModel(nn.Module):
         torch.nn.init.xavier_normal_(self.lin4.weight)
 
     def forward(self, img, txt_emb, t):
+        txt_emb = txt_emb[:, 0, :]
+        img = torch.squeeze(img)
         x = img.view(img.shape[0], -1)
+        x = x.reshape(1, -1)
         x = torch.cat([x, txt_emb], dim=1)
         # x = torch.cat([x, txt_emb], dim=1)
         x = F.relu(self.lin1(x, t))
@@ -108,7 +111,7 @@ class DPOKTrainer(DDPOTrainer):
 
         # prob get these from config
         self.v_steps = 5
-        self.v_batch_size = 2
+        self.v_batch_size = 1
 
     def compute_rewards(self, prompt_image_pairs, is_async=False):
         if not is_async:
@@ -147,7 +150,8 @@ class DPOKTrainer(DDPOTrainer):
         pred_value = self.value_function(
             batch_state.cuda().detach(),
             batch_prompt_embeds.cuda().detach(),
-            batch_timestep.cuda().detach(),
+            self.v_batch_size,
+            # batch_timestep.cuda().detach(),
         )
 
         batch_reward = batch_reward.cuda().float()
@@ -277,13 +281,19 @@ class DPOKTrainer(DDPOTrainer):
                 # value function training steps
                 val_loss = 0
                 self.value_optimizer.zero_grad()
-                v_time_indices = np.random.choice(samples["latents"].shape[0], self.v_steps, replace=False)
+                v_time_indices = np.random.choice(
+                    samples["latents"].shape[0], self.v_steps, replace=False
+                )
                 for v_step in range(self.v_steps):
                     if v_step < self.v_steps - 1:
                         with self.accelerator.no_sync(self.value_function):
-                            val_loss += self.train_value_function(sample, reward, v_time_indices[v_step])
+                            val_loss += self.train_value_function(
+                                sample, reward, v_time_indices[v_step]
+                            )
                     else:
-                        val_loss += self.train_value_function(sample, reward, v_time_indices[v_step])
+                        val_loss += self.train_value_function(
+                            sample, reward, v_time_indices[v_step]
+                        )
                 self.value_optimizer.step()
                 self.value_optimizer.zero_grad()
 
@@ -313,9 +323,6 @@ class DPOKTrainer(DDPOTrainer):
                 self.accelerator.save_state()
 
         return global_step
-    
-def train_sample(self, sample):
-    
 
     def _generate_samples(self, iterations, batch_size):
         """
