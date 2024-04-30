@@ -69,10 +69,9 @@ class ValueModel(nn.Module):
         torch.nn.init.xavier_normal_(self.lin4.weight)
 
     def forward(self, img, txt_emb, t):
-        txt_emb = txt_emb[:, 0, :]
-        img = torch.squeeze(img)
+        txt_emb = txt_emb[0, :]
         x = img.view(img.shape[0], -1)
-        x = x.reshape(1, -1)
+        # x = x.reshape(1, -1)
         x = torch.cat([x, txt_emb], dim=1)
         # x = torch.cat([x, txt_emb], dim=1)
         x = F.relu(self.lin1(x, t))
@@ -140,12 +139,12 @@ class DPOKTrainer(DDPOTrainer):
 
         return zip(*rewards)
 
-    def train_value_function(self, samples, batch_reward, time_index):
+    def train_value_function(self, samples, batch_reward, train_index, time_index):
         # get random indices from batch samples
 
-        batch_state = samples["latents"][time_index]
-        batch_timestep = samples["timesteps"][time_index]
-        batch_prompt_embeds = samples["prompt_embeds"][indices]
+        batch_state = samples["latents"][train_index][time_index]
+        batch_timestep = samples["timesteps"][train_index][time_index]
+        batch_prompt_embeds = samples["prompt_embeds"][train_index]
 
         pred_value = self.value_function(
             batch_state.cuda().detach(),
@@ -275,52 +274,59 @@ class DPOKTrainer(DDPOTrainer):
             ]
 
             for batch_num in range(len(samples_batched)):
-                sample = samples_batched[batch_num].squeeze()
-                reward = rewards[batch_num].squeeze()
+                sample = samples_batched[batch_num]
+                reward = rewards[batch_num]
+                for train_batch_num in range(self.config.train_batch_size):
 
-                # value function training steps
-                val_loss = 0
-                self.value_optimizer.zero_grad()
-                v_time_indices = np.random.choice(
-                    samples["latents"].shape[0], self.v_steps, replace=False
-                )
-                for v_step in range(self.v_steps):
-                    if v_step < self.v_steps - 1:
-                        with self.accelerator.no_sync(self.value_function):
-                            val_loss += self.train_value_function(
-                                sample, reward, v_time_indices[v_step]
-                            )
-                    else:
-                        val_loss += self.train_value_function(
-                            sample, reward, v_time_indices[v_step]
-                        )
-                self.value_optimizer.step()
-                self.value_optimizer.zero_grad()
-
-                self.accelerator.log(
-                    {
-                        "value_loss": val_loss,
-                    }
-                )
-                torch.cuda.empty_cache()
-                # --------------------------------------------
-
-                self.sd_pipeline.unet.train()
-                global_step = self._train_batched_samples(
-                    inner_epoch, epoch, global_step, samples_batched
-                )
-                # ensure optimization step at the end of the inner epoch
-                if not self.accelerator.sync_gradients:
-                    raise ValueError(
-                        "Optimization step should have been performed by this point. Please check calculated gradient accumulation settings."
+                    # value function training steps
+                    val_loss = 0
+                    self.value_optimizer.zero_grad()
+                    v_time_indices = np.random.choice(
+                        sample["latents"][train_batch_num].shape[0],
+                        self.v_steps,
+                        replace=False,
                     )
+                    for v_step in range(self.v_steps):
+                        if v_step < self.v_steps - 1:
+                            with self.accelerator.no_sync(self.value_function):
+                                val_loss += self.train_value_function(
+                                    sample,
+                                    reward,
+                                    train_batch_num,
+                                    v_time_indices[v_step],
+                                )
+                        else:
+                            val_loss += self.train_value_function(
+                                sample, reward, train_batch_num, v_time_indices[v_step]
+                            )
+                    self.value_optimizer.step()
+                    self.value_optimizer.zero_grad()
 
-            if (
-                epoch != 0
-                and epoch % self.config.save_freq == 0
-                and self.accelerator.is_main_process
-            ):
-                self.accelerator.save_state()
+                    self.accelerator.log(
+                        {
+                            "value_loss": val_loss,
+                        }
+                    )
+                    torch.cuda.empty_cache()
+                    # --------------------------------------------
+
+                    self.sd_pipeline.unet.train()
+                    global_step = self._train_batched_samples(
+                        inner_epoch, epoch, global_step, samples_batched
+                    )
+                    global_step += 1
+            # ensure optimization step at the end of the inner epoch
+            if not self.accelerator.sync_gradients:
+                raise ValueError(
+                    "Optimization step should have been performed by this point. Please check calculated gradient accumulation settings."
+                )
+
+        if (
+            epoch != 0
+            and epoch % self.config.save_freq == 0
+            and self.accelerator.is_main_process
+        ):
+            self.accelerator.save_state()
 
         return global_step
 
