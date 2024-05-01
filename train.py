@@ -130,7 +130,7 @@ def aesthetic_scorer(hub_model_id, model_filename):
 
 
 animals = [
-    "cat",
+    # "cat",
     # "dog",
     # "horse",
     # "monkey",
@@ -160,6 +160,7 @@ animals = [
     # "A bear washing dishes.",
     # "A cat under the snow with blue eyes, covered by snow, cinematic style, medium shot, professional photo, animal.",
     # "Batman, cute modern disney style, Pixar 3d portrait, ultra detailed, gorgeous, 3d zbrush, trending on dribbble, 8k render",
+    "A black cat and golden retriever dog. A hot ocean side beach. Dramatic atmosphere, centered, rule of thirds, professional photo."
 ]
 
 
@@ -183,36 +184,38 @@ def image_outputs_logger(image_data, global_step, accelerate_logger):
 
 
 if __name__ == "__main__":
-    parser = HfArgumentParser((ScriptArguments, DDPOConfig))
-    args, ddpo_config = parser.parse_args_into_dataclasses()
-    ddpo_config.project_kwargs = {
-        "logging_dir": "./logs",
-        "automatic_checkpoint_naming": True,
-        "total_limit": 5,
-        "project_dir": "./save",
-    }
+    with torch.cuda.device(1):
 
-    pipeline = DefaultDDPOStableDiffusionPipeline(
-        args.pretrained_model,
-        pretrained_model_revision=args.pretrained_revision,
-        use_lora=args.use_lora,
-    )
-    ddpo_config.log_with = "wandb"
-    ddpo_config.sample_batch_size = 1
-    ddpo_config.train_batch_size = 1
-    ddpo_config.sample_num_batches_per_epoch = 1
-    ddpo_config.num_epochs = 50
-    trainer = DPOKTrainer(
-        ddpo_config,
-        # aesthetic_scorer(
-        #     args.hf_hub_aesthetic_model_id, args.hf_hub_aesthetic_model_filename
-        # ),
-        ImageRewardModel("ImageReward-v1.0"),
-        prompt_fn,
-        pipeline,
-        image_samples_hook=image_outputs_logger,
-    )
+        parser = HfArgumentParser((ScriptArguments, DDPOConfig))
+        args, ddpo_config = parser.parse_args_into_dataclasses()
+        ddpo_config.project_kwargs = {
+            "logging_dir": "./logs",
+            "automatic_checkpoint_naming": True,
+            "total_limit": 5,
+            "project_dir": "./save",
+        }
 
-    trainer.train()
+        pipeline = DefaultDDPOStableDiffusionPipeline(
+            args.pretrained_model,
+            pretrained_model_revision=args.pretrained_revision,
+            use_lora=args.use_lora,
+        )
+        ddpo_config.log_with = "wandb"
+        ddpo_config.sample_batch_size = 6
+        ddpo_config.train_batch_size = 3
+        ddpo_config.sample_num_batches_per_epoch = 2
+        ddpo_config.num_epochs = 100
+        trainer = DPOKTrainer(
+            ddpo_config,
+            # aesthetic_scorer(
+            #     args.hf_hub_aesthetic_model_id, args.hf_hub_aesthetic_model_filename
+            # ),
+            ImageRewardModel("ImageReward-v1.0"),
+            prompt_fn,
+            pipeline,
+            image_samples_hook=image_outputs_logger,
+        )
 
-    trainer.push_to_hub(args.hf_hub_model_id)
+        trainer.train()
+
+        trainer.push_to_hub(args.hf_hub_model_id)

@@ -73,6 +73,10 @@ class ValueModel(nn.Module):
         if len(txt_emb.shape) == 3:
             txt_emb = txt_emb[0, :]
 
+        # another temporary fix to get our run going
+        if len(img.shape) == 4:
+            img = img[0, :]
+
         txt_emb = txt_emb[0, :]
         # x = img.view(img.shape[0], -1)
 
@@ -117,7 +121,7 @@ class DPOKTrainer(DDPOTrainer):
         )
 
         # prob get these from config
-        self.v_steps = 5
+        self.v_steps = 20
         self.v_batch_size = 1
 
     # dont use save because of issue with ddpo not expecting accelerator to have 2 models
@@ -255,6 +259,7 @@ class DPOKTrainer(DDPOTrainer):
             # shuffle samples along batch dimension
             perm = torch.randperm(total_batch_size, device=self.accelerator.device)
             samples = {k: v[perm] for k, v in samples.items()}
+            rewards = torch.tensor(rewards).to(self.accelerator.device)[perm]
 
             # shuffle along time dimension independently for each sample
             # still trying to understand the code below
@@ -281,6 +286,8 @@ class DPOKTrainer(DDPOTrainer):
                 for v in original_values
             ]
 
+            rewards = rewards.reshape(-1, self.config.train_batch_size)
+
             # Transpose the list of original values
             transposed_values = zip(*reshaped_values)
             # Create new dictionaries for each row of transposed values
@@ -289,15 +296,16 @@ class DPOKTrainer(DDPOTrainer):
             ]
 
             for batch_num in range(len(samples_batched)):
-                sample = samples_batched[batch_num]
-                reward = rewards[batch_num]
+                # sample = samples_batched[batch_num]
+                # batch_reward = rewards[batch_num]
                 for train_batch_num in range(self.config.train_batch_size):
+                    # sample_reward = batch_reward[train_batch_num]
 
                     # value function training steps
                     val_loss = 0
                     self.value_optimizer.zero_grad()
                     v_time_indices = np.random.choice(
-                        sample["latents"][train_batch_num].shape[0],
+                        samples_batched[batch_num]["latents"][train_batch_num].shape[0],
                         self.v_steps,
                         replace=False,
                     )
@@ -305,14 +313,17 @@ class DPOKTrainer(DDPOTrainer):
                         if v_step < self.v_steps - 1:
                             with self.accelerator.no_sync(self.value_function):
                                 val_loss += self.train_value_function(
-                                    sample,
-                                    reward,
+                                    samples_batched[batch_num],
+                                    rewards[batch_num][train_batch_num],
                                     train_batch_num,
                                     v_time_indices[v_step],
                                 )
                         else:
                             val_loss += self.train_value_function(
-                                sample, reward, train_batch_num, v_time_indices[v_step]
+                                samples_batched[batch_num],
+                                rewards[batch_num][train_batch_num],
+                                train_batch_num,
+                                v_time_indices[v_step],
                             )
                     self.value_optimizer.step()
                     self.value_optimizer.zero_grad()
@@ -332,9 +343,16 @@ class DPOKTrainer(DDPOTrainer):
                     for j in range(self.num_train_timesteps):
                         if j < self.num_train_timesteps - 1:
                             with self.accelerator.no_sync(self.sd_pipeline.unet):
-                                self.train_policy_function(sample, reward, j, info)
+                                self.train_policy_function(
+                                    samples_batched[batch_num],
+                                    rewards[batch_num],
+                                    j,
+                                    info,
+                                )
                         else:
-                            self.train_policy_function(sample, reward, j, info)
+                            self.train_policy_function(
+                                samples_batched[batch_num], rewards[batch_num], j, info
+                            )
 
                         # if self.accelerator.sync_gradients:
                     # log training-related stuff
@@ -474,11 +492,17 @@ class DPOKTrainer(DDPOTrainer):
             log_prob = scheduler_step_output.log_probs
 
         with torch.no_grad():
-            advantages = reward - self.value_function(
-                sample["latents"][:, time_step],
-                embeds,
-                torch.tensor(time_step).cuda().detach(),
-            ).reshape([self.config.train_batch_size, 1])
+            values = [
+                self.value_function(
+                    sample["latents"][i, time_step],
+                    embeds[i],
+                    torch.tensor(time_step).cuda().detach(),
+                ).reshape([1, 1])
+                for i in range(self.config.train_batch_size)
+            ]
+            values = torch.cat(values)
+            values.reshape([self.config.train_batch_size])
+            advantages = reward - values
 
         ratio = torch.exp(log_prob - sample["log_probs"][:, time_step])
         ratio_clip = 1e-4  # get this froms self.config.train_clip_range later
