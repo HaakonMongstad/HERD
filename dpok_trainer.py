@@ -69,9 +69,17 @@ class ValueModel(nn.Module):
         torch.nn.init.xavier_normal_(self.lin4.weight)
 
     def forward(self, img, txt_emb, t):
+        # going to change this later for accounting for different prompts within one batch but for now
+        if len(txt_emb.shape) == 3:
+            txt_emb = txt_emb[0, :]
+
         txt_emb = txt_emb[0, :]
-        x = img.view(img.shape[0], -1)
+        # x = img.view(img.shape[0], -1)
+
         # x = x.reshape(1, -1)
+        x = img.flatten()
+        txt_emb = txt_emb.unsqueeze(0)
+        x = x.unsqueeze(0)
         x = torch.cat([x, txt_emb], dim=1)
         # x = torch.cat([x, txt_emb], dim=1)
         x = F.relu(self.lin1(x, t))
@@ -112,6 +120,13 @@ class DPOKTrainer(DDPOTrainer):
         self.v_steps = 5
         self.v_batch_size = 1
 
+    # dont use save because of issue with ddpo not expecting accelerator to have 2 models
+    def _save_model_hook(self, models, weights, output_dir):
+        pass
+
+    def _load_model_hook(self, models, input_dir):
+        pass
+
     def compute_rewards(self, prompt_image_pairs, is_async=False):
         if not is_async:
             rewards = []
@@ -149,15 +164,15 @@ class DPOKTrainer(DDPOTrainer):
         pred_value = self.value_function(
             batch_state.cuda().detach(),
             batch_prompt_embeds.cuda().detach(),
-            self.v_batch_size,
+            torch.tensor(time_index).cuda().detach(),
             # batch_timestep.cuda().detach(),
         )
 
-        batch_reward = batch_reward.cuda().float()
+        batch_reward = torch.tensor(batch_reward)
 
         value_loss = F.mse_loss(
-            pred_value.float().reshape([self.v_batch_size, 1]),
-            batch_reward.cuda().detach().reshape([self.v_batch_size, 1]),
+            pred_value.float(),
+            batch_reward.cuda().detach(),
         )
 
         self.accelerator.backward(value_loss / self.v_steps)
@@ -312,21 +327,23 @@ class DPOKTrainer(DDPOTrainer):
 
                     self.sd_pipeline.unet.train()
                     self.optimizer.zero_grad()
+                    info = defaultdict(list)
+
                     for j in range(self.num_train_timesteps):
                         if j < self.num_train_timesteps - 1:
                             with self.accelerator.no_sync(self.sd_pipeline.unet):
-                                self.train_policy_function(sample, info)
+                                self.train_policy_function(sample, reward, j, info)
                         else:
-                            self.train_policy_function(sample, info)
+                            self.train_policy_function(sample, reward, j, info)
 
-                        if self.accelerator.sync_gradients:
-                            # log training-related stuff
-                            info = {k: torch.mean(torch.stack(v)) for k, v in info.items()}
-                            info = self.accelerator.reduce(info, reduction="mean")
-                            info.update({"epoch": epoch, "inner_epoch": inner_epoch})
-                            self.accelerator.log(info, step=global_step)
-                            global_step += 1
-                            info = defaultdict(list)
+                        # if self.accelerator.sync_gradients:
+                    # log training-related stuff
+                    info = {k: torch.mean(torch.stack(v)) for k, v in info.items()}
+                    info = self.accelerator.reduce(info, reduction="mean")
+                    info.update({"epoch": epoch, "inner_epoch": inner_epoch})
+                    # self.accelerator.log(info, step=global_step)
+                    global_step += 1
+                    info = defaultdict(list)
 
             # ensure optimization step at the end of the inner epoch
             if not self.accelerator.sync_gradients:
@@ -413,7 +430,7 @@ class DPOKTrainer(DDPOTrainer):
 
         return samples, prompt_image_pairs
 
-    def train_policy_function(self, sample, info):
+    def train_policy_function(self, sample, reward, time_step, info):
         """
         Train the policy function
 
@@ -435,36 +452,46 @@ class DPOKTrainer(DDPOTrainer):
             embeds = sample["prompt_embeds"]
         with self.autocast():
             model_pred = self.sd_pipeline.unet(
-                sample["latents"],
-                sample["timesteps"],
+                torch.cat([sample["latents"][:, time_step]] * 2),
+                torch.cat([sample["timesteps"][:, time_step]] * 2),
                 embeds,
             ).sample
 
+            # maybe do this... not quite sure what for
+            model_pred_uncond, model_pred_text = model_pred.chunk(2)
+            model_pred = model_pred_uncond + self.config.sample_guidance_scale * (
+                model_pred_text - model_pred_uncond
+            )
+
             scheduler_step_output = self.sd_pipeline.scheduler_step(
                 model_pred,
-                sample["timesteps"],
-                sample["latents"],
+                sample["timesteps"][:, time_step],
+                sample["latents"][:, time_step],
                 eta=self.config.sample_eta,
-                prev_sample=sample["next_latents"],
+                prev_sample=sample["next_latents"][:, time_step],
             )
 
             log_prob = scheduler_step_output.log_probs
 
         with torch.no_grad():
-            advantages = sample["rewards"] - self.value_function(
-                sample["latents"], embeds, sample["timesteps"]
-            ).reshape([self.train_batch_size, 1])
+            advantages = reward - self.value_function(
+                sample["latents"][:, time_step],
+                embeds,
+                torch.tensor(time_step).cuda().detach(),
+            ).reshape([self.config.train_batch_size, 1])
 
-        ratio = torch.exp(log_prob - sample["log_probs"])
+        ratio = torch.exp(log_prob - sample["log_probs"][:, time_step])
         ratio_clip = 1e-4  # get this froms self.config.train_clip_range later
         ratio = torch.clamp(ratio, 1.0 - ratio_clip, 1.0 + ratio_clip)
         reward_weight = 100  # will pass this in too
-        aprrox_kl = 0.5 * torch.mean((log_prob - sample["log_probs"]) ** 2)
+        aprrox_kl = 0.5 * torch.mean(
+            (log_prob - sample["log_probs"][:, time_step]) ** 2
+        )
 
         loss = (
             -reward_weight
             * advantages.detach().float()
-            * ratio.float().reshape([self.train_batch_size, 1])
+            * ratio.float().reshape([self.config.train_batch_size, 1])
         ).mean()
         loss = loss / self.num_train_timesteps
 
