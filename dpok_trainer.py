@@ -341,13 +341,6 @@ class DPOKTrainer(DDPOTrainer):
                     self.value_optimizer.step()
                     self.value_optimizer.zero_grad()
 
-                    self.accelerator.log(
-                        {
-                            "value_loss": val_loss / self.v_steps,
-                        }
-                    )
-                    del val_loss
-                    torch.cuda.empty_cache()
                     # --------------------------------------------
 
                     self.sd_pipeline.unet.train()
@@ -369,8 +362,11 @@ class DPOKTrainer(DDPOTrainer):
                                 samples_batched[batch_num], rewards[batch_num], j, info
                             )
 
+                    self.optimizer.step()
+
                     self.accelerator.log(
                         {
+                            "value_loss": val_loss / self.v_steps,
                             "policy_loss": policy_loss / self.num_train_timesteps,
                         }
                     )
@@ -383,6 +379,9 @@ class DPOKTrainer(DDPOTrainer):
                     # self.accelerator.log(info, step=global_step)
                     global_step += 1
                     info = defaultdict(list)
+
+                    del val_loss
+                    torch.cuda.empty_cache()
 
             # ensure optimization step at the end of the inner epoch
             if not self.accelerator.sync_gradients:
@@ -527,15 +526,18 @@ class DPOKTrainer(DDPOTrainer):
         ratio = torch.exp(log_prob - sample["log_probs"][:, time_step])
         ratio_clip = 1e-4  # get this froms self.config.train_clip_range later
         ratio = torch.clamp(ratio, 1.0 - ratio_clip, 1.0 + ratio_clip)
-        reward_weight = 100  # will pass this in too
+        reward_weight = 1  # will pass this in too (dpoks standard is 100)
         aprrox_kl = 0.5 * torch.mean(
             (log_prob - sample["log_probs"][:, time_step]) ** 2
         )
 
         loss = (
-            -reward_weight
-            * advantages.detach().float()
-            * ratio.float().reshape([self.config.train_batch_size, 1])
+            (
+                -reward_weight
+                * advantages.detach().float()
+                * ratio.float().reshape([self.config.train_batch_size, 1])
+            )
+            ** 2
         ).mean()
         loss = loss / self.num_train_timesteps
 
