@@ -112,6 +112,19 @@ class DPOKTrainer(DDPOTrainer):
             image_samples_hook=image_samples_hook,
         )
 
+        accelerator_project_config = ProjectConfiguration(**self.config.project_kwargs)
+        self.value_accelerator = Accelerator(
+            log_with=self.config.log_with,
+            mixed_precision=self.config.mixed_precision,
+            project_config=accelerator_project_config,
+            # we always accumulate gradients across timesteps; we want config.train.gradient_accumulation_steps to be the
+            # number of *samples* we accumulate across, so we need to multiply by the number of training timesteps to get
+            # the total number of optimizer steps to accumulate across.
+            gradient_accumulation_steps=self.config.train_gradient_accumulation_steps
+            * self.num_train_timesteps,
+            **self.config.accelerator_kwargs,
+        )
+
         self.value_function = ValueModel(50, (4, 64, 64))
         self.value_optimizer = torch.optim.AdamW(
             self.value_function.parameters(), lr=1e-4
@@ -179,11 +192,11 @@ class DPOKTrainer(DDPOTrainer):
             batch_reward.cuda().detach(),
         )
 
-        self.accelerator.backward(value_loss / self.v_steps)
+        self.accelerator.backward(value_loss)
 
         del batch_state, batch_timestep, batch_reward, batch_prompt_embeds, pred_value
 
-        return value_loss.item() / self.v_steps
+        return value_loss.item()
 
     def step(self, epoch: int, global_step: int):
         """
@@ -330,9 +343,10 @@ class DPOKTrainer(DDPOTrainer):
 
                     self.accelerator.log(
                         {
-                            "value_loss": val_loss,
+                            "value_loss": val_loss / self.v_steps,
                         }
                     )
+                    del val_loss
                     torch.cuda.empty_cache()
                     # --------------------------------------------
 
@@ -340,21 +354,28 @@ class DPOKTrainer(DDPOTrainer):
                     self.optimizer.zero_grad()
                     info = defaultdict(list)
 
+                    policy_loss = 0
                     for j in range(self.num_train_timesteps):
                         if j < self.num_train_timesteps - 1:
                             with self.accelerator.no_sync(self.sd_pipeline.unet):
-                                self.train_policy_function(
+                                policy_loss += self.train_policy_function(
                                     samples_batched[batch_num],
                                     rewards[batch_num],
                                     j,
                                     info,
                                 )
                         else:
-                            self.train_policy_function(
+                            policy_loss += self.train_policy_function(
                                 samples_batched[batch_num], rewards[batch_num], j, info
                             )
 
-                        # if self.accelerator.sync_gradients:
+                    self.accelerator.log(
+                        {
+                            "policy_loss": policy_loss / self.num_train_timesteps,
+                        }
+                    )
+
+                    # if self.accelerator.sync_gradients:
                     # log training-related stuff
                     info = {k: torch.mean(torch.stack(v)) for k, v in info.items()}
                     info = self.accelerator.reduce(info, reduction="mean")
@@ -460,7 +481,6 @@ class DPOKTrainer(DDPOTrainer):
             - The policy function is trained
             - The training information is stored in the info dictionary
         """
-
         if self.config.train_cfg:
             # concat negative prompts to sample prompts to avoid two forward passes
             embeds = torch.cat(

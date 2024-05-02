@@ -207,10 +207,10 @@ if __name__ == "__main__":
         ddpo_config.num_epochs = 100
         trainer = DPOKTrainer(
             ddpo_config,
-            # aesthetic_scorer(
-            #     args.hf_hub_aesthetic_model_id, args.hf_hub_aesthetic_model_filename
-            # ),
-            ImageRewardModel("ImageReward-v1.0"),
+            aesthetic_scorer(
+                args.hf_hub_aesthetic_model_id, args.hf_hub_aesthetic_model_filename
+            ),
+            # ImageRewardModel("ImageReward-v1.0"),
             prompt_fn,
             pipeline,
             image_samples_hook=image_outputs_logger,
