@@ -544,6 +544,8 @@ class DPOKTrainer(DDPOTrainer):
 
         self.accelerator.backward(loss)
 
+        return loss
+
     def _train_batched_samples(self, inner_epoch, epoch, global_step, batched_samples):
         """
         Train on a batch of samples. Main training segment
