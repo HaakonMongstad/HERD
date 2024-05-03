@@ -537,7 +537,8 @@ class DPOKTrainer(DDPOTrainer):
             * ratio.float().reshape([self.config.train_batch_size, 1])
         ).mean()
 
-        loss *= approx_kl
+        kl_weight = 0.05  # will pass this in too (dpoks standard is 0.01)
+        loss += approx_kl
 
         info["aprrox_kl"].append(approx_kl)
         info["loss"].append(loss)
