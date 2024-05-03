@@ -527,9 +527,11 @@ class DPOKTrainer(DDPOTrainer):
         ratio_clip = 1e-4  # get this froms self.config.train_clip_range later
         ratio = torch.clamp(ratio, 1.0 - ratio_clip, 1.0 + ratio_clip)
         reward_weight = 100  # will pass this in too (dpoks standard is 100)
-        aprrox_kl = 0.5 * torch.mean(
+        approx_kl = 0.5 * torch.mean(
             (log_prob - sample["log_probs"][:, time_step]) ** 2
         )
+
+        loss *= approx_kl
 
         loss = (
             -reward_weight
