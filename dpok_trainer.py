@@ -539,7 +539,7 @@ class DPOKTrainer(DDPOTrainer):
 
         loss *= approx_kl
 
-        info["aprrox_kl"].append(aprrox_kl)
+        info["aprrox_kl"].append(approx_kl)
         info["loss"].append(loss)
 
         self.accelerator.backward(loss)
