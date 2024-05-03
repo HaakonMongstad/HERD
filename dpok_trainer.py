@@ -521,7 +521,7 @@ class DPOKTrainer(DDPOTrainer):
             ]
             values = torch.cat(values)
             values.reshape([self.config.train_batch_size])
-            advantages = reward - values
+            advantages = reward  # - values (commented out for testing)
 
         ratio = torch.exp(log_prob - sample["log_probs"][:, time_step])
         ratio_clip = 1e-4  # get this froms self.config.train_clip_range later
@@ -538,7 +538,7 @@ class DPOKTrainer(DDPOTrainer):
         ).mean()
 
         kl_weight = 0.05  # will pass this in too (dpoks standard is 0.01)
-        loss += approx_kl
+        loss += approx_kl * kl_weight
 
         info["aprrox_kl"].append(approx_kl)
         info["loss"].append(loss)
