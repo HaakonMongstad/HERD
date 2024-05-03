@@ -539,7 +539,6 @@ class DPOKTrainer(DDPOTrainer):
             )
             ** 2
         ).mean()
-        loss = loss / self.num_train_timesteps
 
         info["aprrox_kl"].append(aprrox_kl)
         info["loss"].append(loss)
