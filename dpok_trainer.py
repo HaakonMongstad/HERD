@@ -531,13 +531,13 @@ class DPOKTrainer(DDPOTrainer):
             (log_prob - sample["log_probs"][:, time_step]) ** 2
         )
 
-        loss *= approx_kl
-
         loss = (
             -reward_weight
             * advantages.detach().float()
             * ratio.float().reshape([self.config.train_batch_size, 1])
         ).mean()
+
+        loss *= approx_kl
 
         info["aprrox_kl"].append(aprrox_kl)
         info["loss"].append(loss)
