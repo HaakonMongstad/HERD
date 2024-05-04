@@ -380,6 +380,7 @@ class DPOKTrainer(DDPOTrainer):
                     global_step += 1
                     info = defaultdict(list)
 
+                    del policy_loss
                     del val_loss
                     torch.cuda.empty_cache()
 
