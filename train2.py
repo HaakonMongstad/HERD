@@ -2,6 +2,8 @@ import importlib
 import os
 from dataclasses import dataclass, field
 
+
+import ImageReward
 import numpy as np
 import torch
 import torch.nn as nn
@@ -12,15 +14,17 @@ from transformers import CLIPModel, CLIPProcessor, HfArgumentParser
 from trl import DDPOConfig, DDPOTrainer, DefaultDDPOStableDiffusionPipeline
 from trl.import_utils import is_npu_available, is_xpu_available
 
-import ImageReward
 from dpok_trainer import DPOKTrainer
+from trainer.config.herd_config import HERConfig
+from trainer.herd import HERTrainer
 
 
 class ImageRewardModel(nn.Module):
     def __init__(self, model_path):
         super().__init__()
         self.model = ImageReward.load(model_path)
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+
+        self.device = "cuda:1" if torch.cuda.is_available() else "cpu"
         self.model.to(self.device)
 
     @torch.no_grad()
@@ -160,6 +164,9 @@ animals = [
     # "A bear washing dishes.",
     # "A cat under the snow with blue eyes, covered by snow, cinematic style, medium shot, professional photo, animal.",
     # "Batman, cute modern disney style, Pixar 3d portrait, ultra detailed, gorgeous, 3d zbrush, trending on dribbble, 8k render",
+    # "Scenic view of Yosemite National Park waterfall during sunset in the winter time",
+    # "A cat under the snow with blue eyes, covered by snow. Cinematic style, medium shot. Professional photo, animal.",
+    # "2 cats in a basket, one is looking at the camera. 1 dog barking in the background.",
     "A black cat and golden retriever dog. A hot ocean side beach. Dramatic atmosphere, centered, rule of thirds, professional photo.",
 ]
 
@@ -185,7 +192,13 @@ def image_outputs_logger(image_data, global_step, accelerate_logger):
 
 if __name__ == "__main__":
     with torch.cuda.device(1):
-        parser = HfArgumentParser((ScriptArguments, DDPOConfig))
+        # Set config type
+        CONFIG_TYPE = HERConfig
+
+        # Parse arguments
+        parser = HfArgumentParser((ScriptArguments, CONFIG_TYPE))
+
+        # Create config file
         args, ddpo_config = parser.parse_args_into_dataclasses()
         ddpo_config.project_kwargs = {
             "logging_dir": "./logs2",
@@ -204,7 +217,9 @@ if __name__ == "__main__":
         ddpo_config.train_batch_size = 3
         ddpo_config.sample_num_batches_per_epoch = 2
         ddpo_config.num_epochs = 100
-        trainer = DDPOTrainer(
+        # ddpo_config.hindsight_batch_size = 1
+
+        trainer = HERTrainer(
             ddpo_config,
             aesthetic_scorer(
                 args.hf_hub_aesthetic_model_id, args.hf_hub_aesthetic_model_filename
