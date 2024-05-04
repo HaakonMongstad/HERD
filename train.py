@@ -13,6 +13,7 @@ from transformers import CLIPModel, CLIPProcessor, HfArgumentParser
 from trl import DDPOConfig, DDPOTrainer, DefaultDDPOStableDiffusionPipeline
 from trl.import_utils import is_npu_available, is_xpu_available
 
+from dpok_trainer import DPOKTrainer
 from trainer.config.herd_config import HERDConfig
 from trainer.herd import HERDTrainer
 
@@ -161,7 +162,6 @@ animals = [
     # "A bear washing dishes.",
     # "A cat under the snow with blue eyes, covered by snow, cinematic style, medium shot, professional photo, animal.",
     # "Batman, cute modern disney style, Pixar 3d portrait, ultra detailed, gorgeous, 3d zbrush, trending on dribbble, 8k render",
-    # "muscular black male covered in chocolate with bunny ears. portrait",
     # "Scenic view of Yosemite National Park waterfall during sunset in the winter time",
     # "A cat under the snow with blue eyes, covered by snow. Cinematic style, medium shot. Professional photo, animal.",
     # "2 cats in a basket, one is looking at the camera. 1 dog barking in the background.",
@@ -189,6 +189,7 @@ def image_outputs_logger(image_data, global_step, accelerate_logger):
 
 
 if __name__ == "__main__":
+
     with torch.cuda.device(0):
         # Set config type
         CONFIG_TYPE = HERDConfig
