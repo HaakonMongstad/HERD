@@ -13,15 +13,15 @@ from transformers import CLIPModel, CLIPProcessor, HfArgumentParser
 from trl import DDPOConfig, DDPOTrainer, DefaultDDPOStableDiffusionPipeline
 from trl.import_utils import is_npu_available, is_xpu_available
 
-from trainer.config.herd_config import HERDConfig
-from trainer.herd import HERDTrainer
+from trainer.config.herd_config import HERConfig
+from trainer.herd import HERTrainer
 
 
 class ImageRewardModel(nn.Module):
     def __init__(self, model_path):
         super().__init__()
         self.model = ImageReward.load(model_path)
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = "cuda:1" if torch.cuda.is_available() else "cpu"
         self.model.to(self.device)
 
     @torch.no_grad()
@@ -189,9 +189,9 @@ def image_outputs_logger(image_data, global_step, accelerate_logger):
 
 
 if __name__ == "__main__":
-    with torch.cuda.device(0):
+    with torch.cuda.device(1):
         # Set config type
-        CONFIG_TYPE = HERDConfig
+        CONFIG_TYPE = HERConfig
 
         # Parse arguments
         parser = HfArgumentParser((ScriptArguments, CONFIG_TYPE))
@@ -199,10 +199,10 @@ if __name__ == "__main__":
         # Create config file
         args, ddpo_config = parser.parse_args_into_dataclasses()
         ddpo_config.project_kwargs = {
-            "logging_dir": "./logs",
+            "logging_dir": "./logs2",
             "automatic_checkpoint_naming": True,
             "total_limit": 5,
-            "project_dir": "./save",
+            "project_dir": "./save2",
         }
 
         pipeline = DefaultDDPOStableDiffusionPipeline(
@@ -217,12 +217,12 @@ if __name__ == "__main__":
         ddpo_config.num_epochs = 100
         # ddpo_config.hindsight_batch_size = 1
 
-        trainer = HERDTrainer(
+        trainer = HERTrainer(
             ddpo_config,
-            # aesthetic_scorer(
-            #     args.hf_hub_aesthetic_model_id, args.hf_hub_aesthetic_model_filename
-            # ),
-            ImageRewardModel("ImageReward-v1.0"),
+            aesthetic_scorer(
+                args.hf_hub_aesthetic_model_id, args.hf_hub_aesthetic_model_filename
+            ),
+            # ImageRewardModel("ImageReward-v1.0"),
             prompt_fn,
             pipeline,
             image_samples_hook=image_outputs_logger,

@@ -26,5 +26,3 @@ image.save("test.jpg")
 
 score = reward_model.score(image=image, prompt=text)
 print(f"Score: {score}")
-
-
