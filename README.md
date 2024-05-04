@@ -3,7 +3,7 @@ Finetuning Text to Image Diffusion Models using Reinforcement Learning
 
 <div style="display: flex;">
 <img src="img/HERD_diagram.png" alt="Image Description" width="200" />
-<img src="img/IR_diagram.png" alt="Image Description" width="200" />
+<img src="img/IR_diagram.png" alt="Transparent Image" style="background-color: white; padding: 10px;" width="300" />
 </div>
 
 
