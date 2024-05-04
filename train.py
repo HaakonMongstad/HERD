@@ -13,6 +13,7 @@ from transformers import CLIPModel, CLIPProcessor, HfArgumentParser
 from trl import DDPOConfig, DDPOTrainer, DefaultDDPOStableDiffusionPipeline
 from trl.import_utils import is_npu_available, is_xpu_available
 
+
 from dpok_trainer import DPOKTrainer
 from trainer.config.herd_config import HERDConfig
 from trainer.herd import HERDTrainer
