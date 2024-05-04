@@ -7,15 +7,14 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torchvision
+from ddpg_trainer import DDPGTrainer
+from dpok_trainer import DPOKTrainer
 from huggingface_hub import hf_hub_download
 from huggingface_hub.utils import EntryNotFoundError
 from transformers import CLIPModel, CLIPProcessor, HfArgumentParser
 from trl import DDPOConfig, DDPOTrainer, DefaultDDPOStableDiffusionPipeline
 from trl.import_utils import is_npu_available, is_xpu_available
 
-
-from ddpg_trainer import DDPGTrainer
-from dpok_trainer import DPOKTrainer
 from trainer.config.herd_config import HERDConfig
 from trainer.herd import HERDTrainer
 
