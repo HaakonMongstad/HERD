@@ -8,7 +8,7 @@ from trl.trainer import DDPOConfig
 
 
 @dataclass
-class HERConfig(DDPOConfig):
+class HERDConfig(DDPOConfig):
     """
     Configuration class for HERTrainer.
     """

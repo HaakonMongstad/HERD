@@ -2,6 +2,7 @@ import importlib
 import os
 from dataclasses import dataclass, field
 
+import ImageReward
 import numpy as np
 import torch
 import torch.nn as nn
@@ -12,9 +13,8 @@ from transformers import CLIPModel, CLIPProcessor, HfArgumentParser
 from trl import DDPOConfig, DDPOTrainer, DefaultDDPOStableDiffusionPipeline
 from trl.import_utils import is_npu_available, is_xpu_available
 
-import ImageReward
-from trainer.config.her_config import HERConfig
-from trainer.her import HERTrainer
+from trainer.config.herd_config import HERDConfig
+from trainer.herd import HERDTrainer
 
 
 class ImageRewardModel(nn.Module):
@@ -191,7 +191,7 @@ def image_outputs_logger(image_data, global_step, accelerate_logger):
 if __name__ == "__main__":
     with torch.cuda.device(0):
         # Set config type
-        CONFIG_TYPE = DDPOConfig
+        CONFIG_TYPE = HERDConfig
 
         # Parse arguments
         parser = HfArgumentParser((ScriptArguments, CONFIG_TYPE))
@@ -217,7 +217,7 @@ if __name__ == "__main__":
         ddpo_config.num_epochs = 100
         # ddpo_config.hindsight_batch_size = 1
 
-        trainer = DDPOTrainer(
+        trainer = HERDTrainer(
             ddpo_config,
             # aesthetic_scorer(
             #     args.hf_hub_aesthetic_model_id, args.hf_hub_aesthetic_model_filename

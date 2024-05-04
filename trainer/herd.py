@@ -18,7 +18,7 @@ from trl.models import DDPOStableDiffusionPipeline
 from trl.trainer import BaseTrainer, DDPOConfig, DDPOTrainer
 from trl.trainer.utils import PerPromptStatTracker
 
-from .config.her_config import HERConfig
+from .config.herd_config import HERDConfig
 
 logger = get_logger(__name__)
 
@@ -27,7 +27,7 @@ MODEL_CARD_TEMPLATE = """---
 license: apache-2.0
 tags:
 - trl
-- her
+- herd
 - diffusers
 - reinforcement-learning
 - text-to-image
@@ -42,13 +42,13 @@ This is a diffusion model that has been fine-tuned with reinforcement learning t
 """
 
 
-class HERTrainer(DDPOTrainer):
+class HERDTrainer(DDPOTrainer):
 
-    _tag_names = ["trl", "her"]
+    _tag_names = ["trl", "herd"]
 
     def __init__(
         self,
-        config: HERConfig,
+        config: HERDConfig,
         reward_function: Callable[[torch.Tensor, Tuple[str], Tuple[Any]], torch.Tensor],
         prompt_function: Callable[[], Tuple[str, Any]],
         sd_pipeline: DDPOStableDiffusionPipeline,
