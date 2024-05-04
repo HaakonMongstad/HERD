@@ -1,9 +1,9 @@
 # HERD: Hindsight Experience Replay for Diffusion Models
 Finetuning Text to Image Diffusion Models using Reinforcement Learning
 
-<div style="display: flex;">
+<div style="display: flex; background-color: white; padding: 100; display: inline-block;">
 <img src="img/HERD_diagram.png" alt="Image Description" width="200" />
-<img src="img/IR_diagram.png" alt="Transparent Image" style="background-color: white; padding: 10px;" width="300" />
+<img src="img/IR_diagram.png" alt="Image Description" width="300" />
 </div>
 
 
