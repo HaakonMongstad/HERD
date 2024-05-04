@@ -5,24 +5,26 @@ channels:
 dependencies:
   - python=3.8
   - pip=20.3
-  # - cudatoolkit=11.3
   - pytorch=1.12.1
   - torchvision=0.13.1
   - numpy=1.21
   - pip:
     - pillow
-    - accelerate==0.17.0
-    - diffusers
+    - peft==0.10.0
+    - wandb==0.16.6
+    - accelerate==0.29.3
+    - diffusers==0.23.1
     - opencv-python==4.1.2.30
     - imageio==2.9.0
     - imageio-ffmpeg==0.4.2
     - einops==0.3.0
     - tensorboard
-    - transformers
+    - transformers==4.31.0
     - kornia
     - fairscale
     - importlib-metadata
     - timm
-    - datasets
-    - huggingface_hub==0.14.1
+    - trl[diffusers]==0.8.5
+    - datasets==2.14.7
+    - huggingface_hub==0.22.2
     - -e git+https://github.com/openai/CLIP.git@main#egg=clip
