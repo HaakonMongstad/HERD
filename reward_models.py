@@ -1,56 +1,14 @@
-from dataclasses import dataclass, field
-import ImageReward
-import numpy as np
+import os
+
 import torch
 import torch.nn as nn
 import torchvision
-from transformers import CLIPModel, CLIPProcessor
 from huggingface_hub import hf_hub_download
 from huggingface_hub.utils import EntryNotFoundError
-import os
+from transformers import CLIPModel, CLIPProcessor
 from trl.import_utils import is_npu_available, is_xpu_available
 
-
-animals = [
-    # "cat",
-    # "dog",
-    # "horse",
-    # "monkey",
-    # "rabbit",
-    # "zebra",
-    # "spider",
-    # "bird",
-    # "sheep",
-    # "deer",
-    # "cow",
-    # "goat",
-    # "lion",
-    # "frog",
-    # "chicken",
-    # "duck",
-    # "goose",
-    # "bee",
-    # "pig",
-    # "turkey",
-    # "fly",
-    # "llama",
-    # "camel",
-    # "bat",
-    # "gorilla",
-    # "hedgehog",
-    # "kangaroo",
-    # "A bear washing dishes.",
-    # "A cat under the snow with blue eyes, covered by snow, cinematic style, medium shot, professional photo, animal.",
-    # "Batman, cute modern disney style, Pixar 3d portrait, ultra detailed, gorgeous, 3d zbrush, trending on dribbble, 8k render",
-    # "Scenic view of Yosemite National Park waterfall during sunset in the winter time",
-    # "A cat under the snow with blue eyes, covered by snow. Cinematic style, medium shot. Professional photo, animal.",
-    # "2 cats in a basket, one is looking at the camera. 1 dog barking in the background.",
-    "A black cat and golden retriever dog. A hot ocean side beach. Dramatic atmosphere, centered, rule of thirds, professional photo.",
-]
-
-
-def prompt_fn():
-    return np.random.choice(animals), {}
+import ImageReward
 
 
 class ImageRewardModel(nn.Module):
