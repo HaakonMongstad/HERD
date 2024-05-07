@@ -42,7 +42,11 @@ example_propmts = [
 
 class PromptFn:
     def __init__(self, prompts):
-        self.prompts = prompts
+        # Check if prompts is a list
+        if isinstance(prompts, str):
+            self.prompts = [prompts]
+        else:
+            self.prompts = prompts
 
     def __call__(self):
         return np.random.choice(self.prompts), {}

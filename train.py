@@ -1,6 +1,5 @@
 import argparse
 
-import torch
 from transformers import HfArgumentParser
 from trl import DDPOConfig, DDPOTrainer, DefaultDDPOStableDiffusionPipeline
 
@@ -14,65 +13,64 @@ from utils import PromptFn, ScriptArguments, image_outputs_logger
 
 
 def main(cli_args):
-    with torch.cuda.device(0):
-        # Reward and Trainer classes
-        trainer_classes = {
-            "herd": HERDTrainer,
-            "ddpg": DDPGTrainer,
-            "dpok": DPOKTrainer,
-            "ddpo": DDPOTrainer,
-        }
+    # Reward and Trainer classes
+    trainer_classes = {
+        "herd": HERDTrainer,
+        "ddpg": DDPGTrainer,
+        "dpok": DPOKTrainer,
+        "ddpo": DDPOTrainer,
+    }
 
-        # Set config type
-        if cli_args.algorithm == "herd":
-            CONFIG_TYPE = HERDConfig
-        elif cli_args.algorithm == "dpok":
-            CONFIG_TYPE = DPOKConfig
-        elif cli_args.algorithm == "ddpo" or cli_args.algorithm == "ddpg":
-            CONFIG_TYPE = DDPOConfig
-        else:
-            raise ValueError("Invalid algorithm")
+    # Set config type
+    if cli_args.algorithm == "herd":
+        CONFIG_TYPE = HERDConfig
+    elif cli_args.algorithm == "dpok":
+        CONFIG_TYPE = DPOKConfig
+    elif cli_args.algorithm == "ddpo" or cli_args.algorithm == "ddpg":
+        CONFIG_TYPE = DDPOConfig
+    else:
+        raise ValueError("Invalid algorithm")
 
-        # Parse arguments
-        parser = HfArgumentParser((ScriptArguments, CONFIG_TYPE))
+    # Parse arguments
+    parser = HfArgumentParser((ScriptArguments, CONFIG_TYPE))
 
-        # Create config file
-        args, trainer_config = parser.parse_args_into_dataclasses()
-        trainer_config.project_kwargs = {
-            "logging_dir": "./logs",
-            "automatic_checkpoint_naming": True,
-            "total_limit": 5,
-            "project_dir": "./save",
-        }
+    # Create config file
+    args, trainer_config = parser.parse_args_into_dataclasses()
+    trainer_config.project_kwargs = {
+        "logging_dir": "./logs",
+        "automatic_checkpoint_naming": True,
+        "total_limit": 5,
+        "project_dir": "./save",
+    }
 
-        pipeline = DefaultDDPOStableDiffusionPipeline(
-            args.pretrained_model,
-            pretrained_model_revision=args.pretrained_revision,
-            use_lora=args.use_lora,
-        )
-        trainer_config.log_with = cli_args.log_with
+    pipeline = DefaultDDPOStableDiffusionPipeline(
+        args.pretrained_model,
+        pretrained_model_revision=args.pretrained_revision,
+        use_lora=args.use_lora,
+    )
+    trainer_config.log_with = cli_args.log_with
 
-        # Create prompt function
-        prompt_fn = PromptFn(cli_args.prompt)
+    # Create prompt function
+    prompt_fn = PromptFn(cli_args.prompt)
 
-        # Create trainer
-        trainer_class = trainer_classes[cli_args.algorithm]
-        trainer = trainer_class(
-            trainer_config,
-            (
-                aesthetic_scorer(
-                    args.hf_hub_aesthetic_model_id, args.hf_hub_aesthetic_model_filename
-                )
-                if cli_args.reward_model == "aesthetic"
-                else ImageRewardModel("ImageReward-v1.0")
-            ),
-            prompt_fn,
-            pipeline,
-            image_samples_hook=image_outputs_logger,
-        )
+    # Create trainer
+    trainer_class = trainer_classes[cli_args.algorithm]
+    trainer = trainer_class(
+        trainer_config,
+        (
+            aesthetic_scorer(
+                args.hf_hub_aesthetic_model_id, args.hf_hub_aesthetic_model_filename
+            )
+            if cli_args.reward_model == "aesthetic"
+            else ImageRewardModel("ImageReward-v1.0")
+        ),
+        prompt_fn,
+        pipeline,
+        image_samples_hook=image_outputs_logger,
+    )
 
-        trainer.train()
-        trainer.push_to_hub(args.hf_hub_model_id)
+    trainer.train()
+    trainer.push_to_hub(args.hf_hub_model_id)
 
 
 if __name__ == "__main__":
