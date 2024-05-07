@@ -15,7 +15,7 @@ library, we test various policy gradient reinforcement learning algorithms to ev
 each performance on an existing open-source
 text-to-image model, Stable Diffusion v1-5.
 
-Paper to Code: (HERD: Fine-tuning Diffusion Models with Reinforcement Learning)[https://drive.google.com/file/d/1GuugzyKCL5i0Yrl8u2Y43t2xzYv8f2tM/view?usp=sharing]
+Paper to Code: [HERD: Fine-tuning Diffusion Models with Reinforcement Learning](https://drive.google.com/file/d/1GuugzyKCL5i0Yrl8u2Y43t2xzYv8f2tM/view?usp=sharing)
 
 ### Create Conda environment
 ```
