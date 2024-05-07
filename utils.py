@@ -1,8 +1,8 @@
-import numpy as np
 from dataclasses import dataclass, field
 
+import numpy as np
 
-animals = [
+example_propmts = [
     # "cat",
     # "dog",
     # "horse",
@@ -40,8 +40,16 @@ animals = [
 ]
 
 
-def prompt_fn():
-    return np.random.choice(animals), {}
+class PromptFn:
+    def __init__(self, prompts):
+        # Check if prompts is a list
+        if isinstance(prompts, str):
+            self.prompts = [prompts]
+        else:
+            self.prompts = prompts
+
+    def __call__(self):
+        return np.random.choice(self.prompts), {}
 
 
 def image_outputs_logger(image_data, global_step, accelerate_logger):
