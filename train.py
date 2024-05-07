@@ -7,8 +7,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torchvision
-from ddpg_trainer import DDPGTrainer
-from dpok_trainer import DPOKTrainer
+from trainer.ddpg_trainer import DDPGTrainer
+from trainer.dpok_trainer import DPOKTrainer
 from huggingface_hub import hf_hub_download
 from huggingface_hub.utils import EntryNotFoundError
 from transformers import CLIPModel, CLIPProcessor, HfArgumentParser
@@ -18,28 +18,7 @@ from trl.import_utils import is_npu_available, is_xpu_available
 from trainer.config.herd_config import HERDConfig
 from trainer.herd import HERDTrainer
 
-
-class ImageRewardModel(nn.Module):
-    def __init__(self, model_path):
-        super().__init__()
-        self.model = ImageReward.load(model_path)
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.model.to(self.device)
-
-    @torch.no_grad()
-    def forward(self, images, prompts, metadata):
-        scores = []
-        for i in range(len(images)):
-            score = torch.tensor(
-                self.model.score(
-                    prompt=prompts[i],
-                    image=torchvision.transforms.ToPILImage()(images[i]),
-                )
-            )
-            scores.append(score)
-
-        return torch.tensor(scores).to(self.device), {}
-
+from reward_models import ImageRewardModel
 
 @dataclass
 class ScriptArguments:
