@@ -31,31 +31,16 @@ bash install_image_reward.sh
 ```
 
 ## Training
-To train the model without specifying any additional arguments, run the following `command`:
+To train the model interactively, run the following command:
 ```bash
 python train.py 
 ```
-To train the model with optional arguments, use:
-```bash
-python train.py [options]
-```
-### Command Line Arguments
-- `--reward_model`: Specify the reward model to use. 
+This will prompt you to enter the necessary arguments.
+### Command Line Inputs
+- `reward_model`: Specify the reward model to use. 
     - Options: `aesthetic`, `imagereward`. 
-    - Default: `imagereward`.
-- `--algorithm`: Specify the algorithm to use. 
+- `algorithm`: Specify the algorithm to use. 
     - Options: `herd`, `ddpg`, `dpok`. 
-    - Default: `herd`.
-- `--log_with`: Specify the logging platform to use. 
+- `log_with`: Specify the logging platform to use. 
     - Options: `wandb`, `tensorboard`. 
-    - Default: `wandb`.
-
-## Examples
-Train using HERD algorithm with ImageReward model and logging with wandb
-```bash
-python train.py --reward_model imagereward --algorithm herd --log_with wandb
-```
-Train using DDPG algorithm with aesthetic model and logging with tensorboard
-```bash
-python train.py --reward_model aesthetic --algorithm ddpg --log_with tensorboard
-```
+- `prompt`: Specify prompt(s) for generating images. Multiple prompts should be seperated by commas.
