@@ -1,5 +1,3 @@
-import argparse
-
 from transformers import HfArgumentParser
 from trl import DDPOConfig, DDPOTrainer, DefaultDDPOStableDiffusionPipeline
 
@@ -12,7 +10,46 @@ from trainer.herd import HERDTrainer
 from utils import PromptFn, ScriptArguments, image_outputs_logger
 
 
-def main(cli_args):
+def get_reward_model():
+    reward_model = input("Select reward model (e.g. aesthetic): ")
+    if reward_model not in ["aesthetic", "imagereward"]:
+        print("Invalid reward model. Please choose from 'aesthetic' or 'imagereward'.")
+        return get_reward_model()
+    return reward_model
+
+
+def get_algorithm():
+    algorithm = input("Select algorithm (e.g. herd): ")
+    if algorithm not in ["herd", "ddpg", "dpok", "ddpo"]:
+        print(
+            "Invalid algorithm. Please choose from 'herd', 'ddpg', 'dpok', or 'ddpo'."
+        )
+        return get_algorithm()
+    return algorithm
+
+
+def get_logging_platform():
+    log_with = input("Select logging platform (e.g. wandb): ")
+    if log_with not in ["wandb", "tensorboard"]:
+        print("Invalid logging platform. Please choose from 'wandb' or 'tensorboard'.")
+        return get_logging_platform()
+    return log_with
+
+
+def get_prompt():
+    prompt_input = input(
+        "Enter prompt(s) for generating images (separated by comma if multiple): "
+    )
+    prompts = [prompt.strip() for prompt in prompt_input.split(",")]
+    return prompts
+
+
+def main():
+    reward_model = get_reward_model()
+    algorithm = get_algorithm()
+    log_with = get_logging_platform()
+    prompt = get_prompt()
+
     # Reward and Trainer classes
     trainer_classes = {
         "herd": HERDTrainer,
@@ -22,11 +59,11 @@ def main(cli_args):
     }
 
     # Set config type
-    if cli_args.algorithm == "herd":
+    if algorithm == "herd":
         CONFIG_TYPE = HERDConfig
-    elif cli_args.algorithm == "dpok":
+    elif algorithm == "dpok":
         CONFIG_TYPE = DPOKConfig
-    elif cli_args.algorithm == "ddpo" or cli_args.algorithm == "ddpg":
+    elif algorithm == "ddpo" or algorithm == "ddpg":
         CONFIG_TYPE = DDPOConfig
     else:
         raise ValueError("Invalid algorithm")
@@ -48,20 +85,20 @@ def main(cli_args):
         pretrained_model_revision=args.pretrained_revision,
         use_lora=args.use_lora,
     )
-    trainer_config.log_with = cli_args.log_with
+    trainer_config.log_with = log_with
 
     # Create prompt function
-    prompt_fn = PromptFn(cli_args.prompt)
+    prompt_fn = PromptFn(prompt)
 
     # Create trainer
-    trainer_class = trainer_classes[cli_args.algorithm]
+    trainer_class = trainer_classes[algorithm]
     trainer = trainer_class(
         trainer_config,
         (
             aesthetic_scorer(
                 args.hf_hub_aesthetic_model_id, args.hf_hub_aesthetic_model_filename
             )
-            if cli_args.reward_model == "aesthetic"
+            if reward_model == "aesthetic"
             else ImageRewardModel("ImageReward-v1.0")
         ),
         prompt_fn,
@@ -74,34 +111,4 @@ def main(cli_args):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Your script description here.")
-    parser.add_argument(
-        "--reward_model",
-        type=str,
-        default="aesthetic",
-        help="Select reward model (e.g. aesthetic,)",
-        choices=["aesthetic", "imagereward"],
-    )
-    parser.add_argument(
-        "--algorithm",
-        type=str,
-        default="herd",
-        help="Select algorithm (e.g. herd)",
-        choices=["herd", "ddpg", "dpok", "ddpo"],
-    )
-    parser.add_argument(
-        "--log_with",
-        type=str,
-        default="wandb",
-        help="Select logging platform (e.g. wandb)",
-        choices=["wandb", "tensorboard"],
-    )
-    parser.add_argument(
-        "--prompt",
-        type=str,
-        default="A black cat and golden retriever dog. A hot ocean side beach. Dramatic atmosphere, centered, rule of thirds, professional photo.",
-        help="Prompt for to generate images",
-    )
-    args = parser.parse_args()
-
-    main(args)
+    main()
